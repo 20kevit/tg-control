@@ -1,6 +1,6 @@
 # Execution status
 
-Updated 2026-11-06. Branch: `arena/663cd534-tg-control`. Repository baseline contained only `README.md` and `docs/ARENA.md`; history at checkout is a single grafted initial commit. Both were read completely.
+Updated 2026-11-07. Branch: `arena/663cd534-tg-control`. Repository baseline contained only `README.md` and `docs/ARENA.md`; history at checkout is a single grafted initial commit. Both were read completely.
 
 ## Stage 0/1 baseline in progress
 
@@ -148,3 +148,10 @@ Updated 2026-11-06. Branch: `arena/663cd534-tg-control`. Repository baseline con
 - Files: `src/tg_control/{monitoring,api}.py`, `src/tg_control/static/`, `tests/test_monitor_progress.py`, `tests/browser/admin.cjs`, and operations/security/interface docs. No schema migration, external service, credential or real Telegram data was used.
 - Verification: unit/API tests covered owner-only access, in-flight duration, failure/retry/recovery, cancellation, restart/reset and sanitized audit; Chromium exercised warnings, hostile text, stale response ordering and logout clearing. Full `.venv/bin/pytest -q` — **194 passed, one optional native probe skipped**, one benign `XDG_RUNTIME_DIR` warning; Ruff, `npm run check`, `pip check` and Bandit medium/high scan passed.
 - Limitations: no external heartbeat or push/email/SMS, no automatic stale threshold, no monitoring while stopped, and health/readiness do not attest monitor progress. An event-loop-blocking adapter can prevent the endpoint from responding. The synthetic simulator may load the entire encrypted synthetic account document for a status check, although the monitor does not request, interpret or act on messages. The live adapter, legal/owner gate, OAuth/ChatGPT, Docker runtime, independent review and production readiness remain open.
+
+## Cooperative single-instance protection (2026-11-07)
+
+- Enforced the existing synthetic-only, single-worker constraint for cooperating applications: a dedicated PostgreSQL session advisory lock, or a private POSIX sibling lock file for local SQLite. A second cooperating instance fails startup; detected guard loss is latched and rejects later routed HTTP/MCP work, while subsequent scheduled maintenance passes are skipped. The readiness path also fails when it reaches a lost guard. Startup, cleanup and error logging are sanitized. This does not introduce a live adapter, use real data, change policy permissions or migrate an existing database.
+- Files: `src/tg_control/{instance_guard,api}.py`, existing `tests/{test_api,test_postgres_api}.py`, and architecture/API/operations/security/testing/acceptance documentation. The requested `tests/test_instance_guard.py` was already absent and remains absent.
+- Verification: disposable SQLite and PostgreSQL tests covered cross-process contention, release/restart, startup failure, a non-superuser lock, lock replacement/unlock/backend termination, latched `503` responses, sanitized failures and no effect from a newly rejected mutation. Full `timeout 180s .venv/bin/pytest -q` — **201 passed, one optional native probe skipped**, one benign `XDG_RUNTIME_DIR` warning; Ruff, JavaScript syntax, `pip check`, `git diff --check` and Bandit medium/high passed. No stuck gateway/test process was present at inspection; the cause of the earlier apparent loop could not be determined.
+- Limitations: this guard is cooperative, not distributed fencing. It cannot prevent noncooperating writers, transaction-pooling/failover hazards, SQLite hard-link aliases or effects already in flight when a lock is lost. Exactly one instance and stopped backup writers remain mandatory. Live TDLib, legal/owner approval, remote OAuth/ChatGPT interoperability, container runtime, independent review and production readiness remain open.

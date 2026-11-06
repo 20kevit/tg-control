@@ -333,3 +333,173 @@ def test_all_methods_enforce_streaming_body_and_framing_boundaries(api, settings
         event["event"] == "boundary_rejection" and event["error_code"] == "http_413"
         for event in events
     )
+
+
+def test_sqlite_single_gateway_excludes_other_processes_and_releases(settings):
+    import subprocess
+    import sys
+
+    import pytest
+    from fastapi.testclient import TestClient
+    from test_migrations import migrate
+
+    from tg_control.api import create_app
+
+    migrate(settings.database_url)
+    child = """
+import os, sys
+from tg_control.db import make_engine
+from tg_control.instance_guard import InstanceGuard
+engine = make_engine(os.environ['SYNTHETIC_DB_URL'])
+guard = InstanceGuard(engine)
+try:
+    guard.acquire()
+except RuntimeError:
+    sys.exit(23)
+finally:
+    guard.close()
+    engine.dispose()
+"""
+    env = {"SYNTHETIC_DB_URL": settings.database_url}
+    with TestClient(create_app(settings)) as first:
+        with pytest.raises(RuntimeError, match="another gateway is already using"):
+            with TestClient(create_app(settings)):
+                pass
+        blocked = subprocess.run(
+            [sys.executable, "-I", "-c", child], env=env, capture_output=True, timeout=15
+        )
+        assert blocked.returncode == 23, blocked.stderr.decode()
+        assert first.get("/health/ready", headers=auth(settings.owner_token)).status_code == 200
+    released = subprocess.run(
+        [sys.executable, "-I", "-c", child], env=env, capture_output=True, timeout=15
+    )
+    assert released.returncode == 0, released.stderr.decode()
+    with TestClient(create_app(settings)) as restarted:
+        assert restarted.get("/health/ready", headers=auth(settings.owner_token)).status_code == 200
+
+
+def test_sqlite_guard_loss_rejects_new_requests_and_stays_failed(settings, caplog):
+    from fastapi.testclient import TestClient
+    from test_migrations import migrate
+
+    from tg_control.api import create_app
+
+    migrate(settings.database_url)
+    app = create_app(settings)
+    with TestClient(app) as first:
+        owner, account, client = create_resources(first, settings)
+        set_policy(first, owner, account, client)
+        # Simulate replacement of a lock file in this disposable synthetic fixture only.
+        app.state.instance_guard._path.unlink()
+        with TestClient(create_app(settings)) as second:
+            assert second.get("/health/ready", headers=owner).status_code == 200
+            denied = execute(
+                first,
+                client["credential"],
+                account,
+                "send",
+                "public-channel",
+                key=uuid.uuid4(),
+                text="must not be sent",
+            )
+            assert denied.status_code == 503
+            assert denied.json() == {"error": "instance_guard_lost", "outcome_unknown": False}
+            assert first.get("/health/ready", headers=owner).status_code == 503
+            assert first.get("/admin/").status_code == 503
+            mcp = first.post(
+                "/mcp",
+                headers={
+                    **auth(client["credential"]),
+                    "Accept": "application/json, text/event-stream",
+                },
+                json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            )
+            assert mcp.status_code == 503
+            history = first.portal.call(
+                app.state.gateway.adapter.execute, account["id"], "history", "public-channel", {}
+            )
+            assert all(message["text"] != "must not be sent" for message in history["messages"])
+        # The old worker must not silently reacquire the newly available lock.
+        assert first.get("/health/ready", headers=owner).status_code == 503
+        with app.state.sessions() as session:
+            assert session.scalar(
+                select(AuditEvent).where(
+                    AuditEvent.event == "http_request", AuditEvent.error_code == "http_503"
+                )
+            )
+    assert "gateway instance guard lost; restart required" in caplog.text
+    assert "must not be sent" not in caplog.text
+
+
+def test_sqlite_guard_rejects_preexisting_symlink_and_insecure_lock(settings, tmp_path):
+    from pathlib import Path
+
+    import pytest
+    from fastapi.testclient import TestClient
+    from sqlalchemy.engine import make_url
+    from test_migrations import migrate
+
+    from tg_control.api import create_app
+
+    migrate(settings.database_url)
+    database = Path(make_url(settings.database_url).database).resolve()
+    lock = database.with_name(database.name + ".tg-control.lock")
+    target = tmp_path / "synthetic-target"
+    target.write_text("unchanged", encoding="utf-8")
+    target.chmod(0o600)
+    lock.symlink_to(target)
+    with pytest.raises(RuntimeError, match="instance guard could not be acquired"):
+        with TestClient(create_app(settings)):
+            pass
+    assert target.read_text(encoding="utf-8") == "unchanged"
+    lock.unlink()
+    lock.write_text("", encoding="utf-8")
+    lock.chmod(0o644)
+    with pytest.raises(RuntimeError, match="instance guard could not be acquired"):
+        with TestClient(create_app(settings)):
+            pass
+
+
+def test_single_gateway_guard_releases_when_startup_fails(settings, monkeypatch):
+    import pytest
+    from fastapi.testclient import TestClient
+    from test_migrations import migrate
+
+    from tg_control.api import create_app
+
+    migrate(settings.database_url)
+    app = create_app(settings)
+
+    async def fail_retention(*_args):
+        raise RuntimeError("synthetic startup failure")
+
+    monkeypatch.setattr(app.state.gateway, "configure_retention", fail_retention)
+    with pytest.raises(RuntimeError, match="synthetic startup failure"):
+        with TestClient(app):
+            pass
+    with TestClient(create_app(settings)) as restarted:
+        assert restarted.get("/health/ready", headers=auth(settings.owner_token)).status_code == 200
+
+
+def test_sqlite_instance_guard_sanitizes_path_failures(monkeypatch):
+    from types import SimpleNamespace
+
+    import pytest
+
+    from tg_control.instance_guard import InstanceGuard
+
+    class BadPath:
+        def __init__(self, _database):
+            pass
+
+        def resolve(self):
+            raise OSError("synthetic-private-path-detail")
+
+    monkeypatch.setattr("tg_control.instance_guard.Path", BadPath)
+    engine = SimpleNamespace(
+        dialect=SimpleNamespace(name="sqlite"),
+        url=SimpleNamespace(database="synthetic.sqlite", query={}),
+    )
+    with pytest.raises(RuntimeError, match="instance guard could not be acquired") as error:
+        InstanceGuard(engine).acquire()
+    assert "synthetic-private" not in str(error.value)

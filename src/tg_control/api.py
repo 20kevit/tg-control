@@ -30,6 +30,7 @@ from .auth import Principal, authenticate, revoke_client, rotate_credential, ver
 from .config import Settings
 from .core import BatchRejected, Gateway
 from .db import Account, AuditEvent, Client, Grant, Setting, make_engine, make_sessions
+from .instance_guard import InstanceGuard, InstanceGuardBoundary
 from .mcp_server import RemoteBackend, create_mcp_server
 from .monitoring import SessionMonitorProgress
 from .policy import GrantInput
@@ -96,6 +97,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     gateway = Gateway(
         sessions, selected_adapter, timeout_seconds=settings.operation_timeout_seconds
     )
+    instance_guard = InstanceGuard(engine)
     fernet = Fernet(settings.encryption_key)
     monitor_progress = SessionMonitorProgress()
     mcp = create_mcp_server(RemoteBackend(gateway, sessions))
@@ -119,6 +121,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                 ).scalar_one()
                 if revision != "0004":
                     raise RuntimeError("database migrations are not up to date")
+            instance_guard.acquire()
             with sessions() as session:
                 stored = session.get(Setting, "retention")
                 retention = RetentionSettings.model_validate(stored.value if stored else {})
@@ -131,6 +134,8 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                 ticks = 0
                 while True:
                     await asyncio.sleep(60)
+                    if not instance_guard.check():
+                        continue
                     try:
                         gateway.maintain_cache()
                     except Exception:
@@ -151,6 +156,8 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                 while True:
                     monitor_progress.begin()
                     try:
+                        if not instance_guard.check():
+                            raise RuntimeError("instance guard lost")
                         await gateway.maintain_sessions()
                     except Exception:
                         monitor_progress.finish(success=False)
@@ -170,8 +177,13 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                 task.cancel()
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
-            await gateway.close()
-            engine.dispose()
+            try:
+                await gateway.close()
+            finally:
+                try:
+                    instance_guard.close()
+                finally:
+                    engine.dispose()
 
     app = FastAPI(
         title="TG-Control synthetic gateway",
@@ -182,6 +194,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
         lifespan=lifespan,
     )
     app.state.gateway = gateway
+    app.state.instance_guard = instance_guard
     app.state.sessions = sessions
     app.state.settings = settings
 
@@ -533,6 +546,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     )
     # The MCP mount is last so explicit API and panel routes keep precedence.
     app.mount("/", mcp_app)
+    app.add_middleware(InstanceGuardBoundary, guard=instance_guard)
     app.add_middleware(RequestAudit, sessions=sessions, owner_token=settings.owner_token)
     app.add_middleware(
         CORSMiddleware,

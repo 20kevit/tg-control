@@ -15,3 +15,7 @@ Accepted. A separately provisioned owner-management credential controls principa
 ## ADR-004: Pre-authorization and retry safety
 
 Accepted. Authorize every batch target before executing any item; fail the batch closed if a target is denied. Individual execution failures are reported without claiming atomicity. Retry only an explicit, definitely-not-applied rate-limit result, waiting the indicated duration within a finite deadline. Never blindly retry an outcome-unknown write.
+
+## ADR-005: Cooperative single-instance guard, not distributed fencing
+
+Accepted for synthetic development. Preserve the existing one-worker constraint with a dedicated PostgreSQL session advisory lock, or a private POSIX lock file for local SQLite. Refuse a second cooperating application and latch detected lock loss rather than silently reacquiring. This is a defense-in-depth check, not a multi-instance design: noncooperating writers, PostgreSQL transaction pooling/failover, SQLite path aliases and in-flight operations require separate controls. Backups still require all writers stopped.

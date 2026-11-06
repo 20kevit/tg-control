@@ -8,6 +8,8 @@ PostgreSQL stores metadata, credential digests, policy, settings, and audit. The
 
 The synthetic-only session monitor runs as a background task through Gateway Core and calls only adapter status, never requests or interprets messages or reconnects. The simulator's encrypted account document may nevertheless be loaded in full, including synthetic messages, to obtain its state. It atomically stores normalized state snapshots and metadata-only transition audit events. The owner panel fetches current status and an owner-authenticated, event-filtered history; the owner-only progress endpoint also reports in-process task liveness and pass timing; neither is an external notification system. Checks cannot run while the service is stopped, and cooperative timeouts cannot protect against an adapter that blocks the event loop or ignores cancellation.
 
+The synthetic application cooperatively guards its existing single-instance constraint with a dedicated PostgreSQL session advisory lock (or a private POSIX lock file for development SQLite). Guard loss is latched and blocks subsequent routed work; it cannot cancel already-started effects or prevent noncooperating writers. Transaction-pooling proxies are unsupported. This is not a distributed lease/fencing system and does not make multi-worker deployment safe.
+
 ## Trust boundaries
 
 1. HTTP/MCP inputs and Origin/Host are untrusted; bearer identity comes only from the server credential store.
