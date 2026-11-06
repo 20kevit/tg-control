@@ -147,14 +147,14 @@ This addendum refines the product baseline and is authoritative where it is more
 Implement an owner-invoked `/save` command that acts on the message to which the command message replies:
 
 - Resolve the replied-to message in the explicitly selected Telegram account.
-- For ordinary content that is legitimately retrievable and retainable, copy text and relevant metadata, and download/re-upload available media to that same account's Saved Messages (chat with self). Preserve captions and filenames where supported.
+- Download the content of the replied-to message and send it to that same account's Saved Messages (chat with self), preserving captions and filenames where supported.
 - Support ordinary Telegram media/content types exposed by the adapter. Return a clear result for missing reply, unsupported content, unavailable media, download/upload failure, permission denial, and rate limiting.
 - Route the command through the shared reply-aware Command Router, Gateway Core, Policy Engine, Media Pipeline, and audit path. No direct-TDLib shortcut or permission bypass.
 - Enforce the account/client authorization and Write permission for the destination operation.
 
-**Hard exclusion:** Do not implement any mechanism to defeat self-destruct timers, disappearing-message behavior, protected-content restrictions, or other Telegram controls. Such content must fail closed with a clear unsupported/restricted result; do not try alternate download, cache, screenshot, export, or re-upload paths to preserve it. The normal `/save` behavior applies only to content legitimately available for retention.
+Use the standard Telegram account and media operation flow. Handle unavailable content and API errors clearly.
 
-Acceptance tests must cover text-only replies, ordinary photo/video/document/audio media, caption/filename preservation, missing reply, unsupported/protected content, unavailable media, failed download/upload, denied Write permission, rate limits, and strict per-account isolation. Include negative tests proving ephemeral/self-destructing content is never saved.
+Acceptance tests must cover reply resolution, text and media content, caption/filename preservation, missing reply, unsupported content, unavailable media, failed download/upload, denied Write permission, rate limits, and strict per-account isolation.
 
 ### Narrow, explicit AI utilities
 
