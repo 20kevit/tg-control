@@ -3,6 +3,8 @@
 const state = { token: "", accounts: [], clients: [], sessions: {}, retention: null };
 let sessionTimer = null;
 let sessionGeneration = 0;
+let sessionRefreshSequence = 0;
+let workspaceRefreshSequence = 0;
 let idleTimer = null;
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const $ = (selector) => document.querySelector(selector);
@@ -30,9 +32,9 @@ function showView(view) {
 }
 document.querySelectorAll("[data-view], [data-go]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.view || button.dataset.go)));
 $("#login-form").addEventListener("submit", async (event) => {
-  event.preventDefault(); sessionGeneration += 1; state.token = $("#owner-token").value.trim(); $("#owner-token").value = ""; $("#login-error").textContent = "";
-  try { await refreshAll(); $("#login").hidden = true; $("#app").hidden = false; sessionTimer = setInterval(() => refreshSessions().catch(report), 30000); resetIdleTimer(); }
-  catch { state.token = ""; $("#login-error").textContent = "Unable to unlock the workspace. Check the credential and gateway."; }
+  event.preventDefault(); const generation = ++sessionGeneration; state.token = $("#owner-token").value.trim(); $("#owner-token").value = ""; $("#login-error").textContent = "";
+  try { await refreshAll(); if (generation !== sessionGeneration || !state.token) return; $("#login").hidden = true; $("#app").hidden = false; sessionTimer = setInterval(() => refreshSessions().catch(report), 30000); resetIdleTimer(); }
+  catch { if (generation !== sessionGeneration) return; state.token = ""; $("#login-error").textContent = "Unable to unlock the workspace. Check the credential and gateway."; }
 });
 function lockWorkspace(reason = "") {
   sessionGeneration += 1;
@@ -42,14 +44,18 @@ function lockWorkspace(reason = "") {
   for (const selector of ["#account-list", "#client-list", "#recent-audit", "#session-events", "#audit-list", "#policy-client", "#policy-account"]) $(selector).replaceChildren();
   $("#stat-accounts").textContent = "0"; $("#stat-clients").textContent = "0";
   $("#policy-form").hidden = true; $("#issued-credential").value = ""; $("#credential-box").hidden = true;
-  clearNotice(); $("#session-alert").hidden = true; $("#session-alert").textContent = ""; $("#app").hidden = true; $("#login").hidden = false; $("#login-error").textContent = reason; $("#owner-token").focus();
+  clearNotice(); $("#session-alert").hidden = true; $("#session-alert").textContent = ""; $("#monitor-alert").hidden = true; $("#monitor-alert").textContent = ""; $("#monitor-summary").textContent = ""; $("#app").hidden = true; $("#login").hidden = false; $("#login-error").textContent = reason; $("#owner-token").focus();
 }
 function resetIdleTimer() { if (!state.token) return; clearTimeout(idleTimer); idleTimer = setTimeout(() => lockWorkspace("Signed out after 15 minutes of inactivity."), IDLE_TIMEOUT_MS); }
 for (const event of ["pointerdown", "keydown", "input"]) document.addEventListener(event, resetIdleTimer, { passive: true });
 $("#logout").addEventListener("click", () => lockWorkspace());
 $("#refresh").addEventListener("click", () => refreshAll().then(() => notice("Workspace refreshed.")).catch(report));
 async function refreshAll() {
-  const [accounts, clients, settings, audit, storage] = await Promise.all([request("/v1/admin/accounts"), request("/v1/admin/clients"), request("/v1/admin/settings"), request("/v1/admin/audit"), request("/v1/admin/storage-status")]);
+  const generation = sessionGeneration, sequence = ++workspaceRefreshSequence;
+  let accounts, clients, settings, audit, storage;
+  try { [accounts, clients, settings, audit, storage] = await Promise.all([request("/v1/admin/accounts"), request("/v1/admin/clients"), request("/v1/admin/settings"), request("/v1/admin/audit"), request("/v1/admin/storage-status")]); }
+  catch (error) { if ((generation !== sessionGeneration || sequence !== workspaceRefreshSequence) && error.status !== 401) return; throw error; }
+  if (generation !== sessionGeneration || !state.token || sequence !== workspaceRefreshSequence) return;
   state.accounts = accounts.accounts; state.clients = clients.clients;
   $("#stat-accounts").textContent = String(state.accounts.length); $("#stat-clients").textContent = String(state.clients.filter((client) => client.enabled).length);
   renderAccounts(); renderClients(); populateSelectors(); renderSettings(settings); renderAudit(audit.events);
@@ -57,17 +63,18 @@ async function refreshAll() {
   await refreshSessions();
 }
 async function refreshSessions() {
-  const generation = sessionGeneration;
+  const generation = sessionGeneration, sequence = ++sessionRefreshSequence;
   const active = state.accounts.filter((account) => account.enabled);
-  let statuses, history;
-  try { [statuses, history] = await Promise.all([Promise.all(active.map((account) => request(`/v1/admin/accounts/${pathPart(account.id)}/status`))), request("/v1/admin/audit?event=session_transition&limit=5")]); }
+  let statuses, history, monitor;
+  try { [statuses, history, monitor] = await Promise.all([Promise.all(active.map((account) => request(`/v1/admin/accounts/${pathPart(account.id)}/status`))), request("/v1/admin/audit?event=session_transition&limit=5"), request("/v1/admin/session-monitor")]); }
   catch (error) {
-    if (generation === sessionGeneration && state.token) { $("#session-alert").textContent = "Unable to verify account session status or history. Check the gateway and try again."; $("#session-alert").hidden = false; }
+    if (generation === sessionGeneration && state.token && sequence === sessionRefreshSequence) { $("#session-alert").textContent = "Unable to verify account session status or history. Check the gateway and try again."; $("#session-alert").hidden = false; $("#monitor-alert").textContent = "Unable to verify the background session monitor."; $("#monitor-alert").hidden = false; }
+    else if (error.status !== 401) return;
     throw error;
   }
-  if (generation !== sessionGeneration || !state.token) return;
+  if (generation !== sessionGeneration || !state.token || sequence !== sessionRefreshSequence) return;
   state.sessions = Object.fromEntries(active.map((account, index) => [account.id, statuses[index]]));
-  renderAccounts(); renderSessionEvents(history.events);
+  renderAccounts(); renderSessionEvents(history.events); renderMonitor(monitor);
   const intervention = statuses.some((status) => status.intervention_required);
   const disconnected = statuses.some((status) => status.state !== "ready");
   $("#session-alert").textContent = intervention ? "A synthetic account session requires owner intervention. Review Accounts." : "A synthetic account session is disconnected. Review Accounts and reconnect if needed.";
@@ -139,6 +146,18 @@ function renderSettings(settings) { state.retention = settings; $("#audit-days")
 $("#media-permanent").addEventListener("change", () => { $("#media-days").disabled = $("#media-permanent").checked; });
 $("#retention-form").addEventListener("submit", async (event) => { event.preventDefault(); try { const media = $("#media-permanent").checked ? null : Number($("#media-days").value); if (media !== null && state.retention && (state.retention.media_retention_days === null || media < state.retention.media_retention_days) && !window.confirm("A shorter retention period may immediately delete expired synthetic media. Continue?")) return; const settings = await request("/v1/admin/settings", { method: "PUT", body: { audit_retention_days: Number($("#audit-days").value), cache_ttl_seconds: Number($("#cache-seconds").value), media_retention_days: media } }); renderSettings(settings); notice("Retention settings saved."); } catch (error) { report(error); } });
 $("#prune-audit").addEventListener("click", async () => { if (!window.confirm("Permanently delete audit records older than the configured retention period?")) return; try { const result = await request("/v1/admin/maintenance/prune-audit", { method: "POST" }); notice(`Pruned ${result.deleted} expired audit records.`); } catch (error) { report(error); } });
+function renderMonitor(monitor) {
+  const valid = monitor && typeof monitor.task_running === "boolean" && typeof monitor.pass_in_progress === "boolean" && ["never", "success", "failure"].includes(monitor.last_result) && Number.isInteger(monitor.consecutive_failures) && monitor.consecutive_failures >= 0 && (monitor.last_success_at === null || typeof monitor.last_success_at === "string") && (monitor.last_result === "failure" ? monitor.consecutive_failures > 0 : monitor.consecutive_failures === 0) && (monitor.last_result !== "success" || typeof monitor.last_success_at === "string") && (monitor.last_result !== "never" || monitor.last_success_at === null) && (monitor.pass_in_progress ? typeof monitor.current_pass_seconds === "number" && Number.isFinite(monitor.current_pass_seconds) && monitor.current_pass_seconds >= 0 : monitor.current_pass_seconds === null);
+  let warning = "";
+  if (!valid) warning = "Unable to verify the background session monitor.";
+  else if (!monitor.task_running) warning = "The background synthetic session monitor has stopped. Check gateway maintenance logs.";
+  else if (monitor.last_result === "failure") warning = "The background synthetic session monitor failed its last pass. Check gateway maintenance logs.";
+  $("#monitor-alert").textContent = warning; $("#monitor-alert").hidden = !warning;
+  if (!valid) { $("#monitor-summary").textContent = "Monitor progress unavailable."; return; }
+  const last = monitor.last_success_at ? `Last successful pass: ${monitor.last_success_at}.` : "No successful pass recorded since startup.";
+  const current = monitor.pass_in_progress ? ` Current pass: ${Math.floor(monitor.current_pass_seconds)} seconds so far.` : "";
+  $("#monitor-summary").textContent = last + current;
+}
 function renderSessionEvents(events) {
   const root = $("#session-events"); root.replaceChildren();
   if (!events.length) { empty(root, "No synthetic session changes recorded yet."); return; }

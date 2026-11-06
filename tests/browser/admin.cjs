@@ -32,6 +32,8 @@ const executable = chromiumPackage.default;
     assert.match(await page.locator('#account-list').innerText(), /<img src=x/);
     const monitorAccountId = await page.locator('#policy-account option').nth(1).getAttribute('value');
     const sessionHistoryRoute = /\/v1\/admin\/audit\?event=session_transition&limit=5$/;
+    const monitorRoute = '**/v1/admin/session-monitor';
+    await page.route(monitorRoute, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ task_running: true, pass_in_progress: false, last_result: 'failure', consecutive_failures: 1, last_success_at: unsafeAlias, current_pass_seconds: null }) }));
     await page.route(sessionHistoryRoute, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ events: [{ account_id: monitorAccountId, decision: 'reauth_required', timestamp: 'synthetic-time' }] }) }));
     await page.route('**/v1/admin/accounts/*/status', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"state":"reauth_required","intervention_required":true}' }));
     await page.click('#refresh');
@@ -42,13 +44,70 @@ const executable = chromiumPackage.default;
     assert.match(await page.locator('#session-events').textContent(), /Owner action required/);
     assert.equal(await page.locator('#session-events img').count(), 0);
     assert.equal(await page.evaluate(() => window.__tgXss), 0);
+    await page.waitForSelector('#monitor-alert:not([hidden])');
+    assert.match(await page.locator('#monitor-alert').innerText(), /failed its last pass/);
+    assert.match(await page.locator('#monitor-summary').textContent(), /<img src=x/);
+    assert.equal(await page.locator('#monitor-summary img').count(), 0);
+    assert.equal(await page.evaluate(() => window.__tgXss), 0);
     await page.unroute(sessionHistoryRoute);
     await page.click('[data-view=clients]');
     assert.ok(await page.locator('#session-alert').isVisible());
+    assert.ok(await page.locator('#monitor-alert').isVisible());
+    await page.unroute(monitorRoute);
+    await page.route(monitorRoute, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ task_running: false, pass_in_progress: false, last_result: 'success', consecutive_failures: 0, last_success_at: 'synthetic-time', current_pass_seconds: null }) }));
+    await page.click('#refresh');
+    await page.waitForFunction(() => document.querySelector('#monitor-alert').textContent.includes('has stopped'));
+    await page.unroute(monitorRoute);
+    await page.route(monitorRoute, route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"task_running":true,"last_result":"success"}' }));
+    await page.click('#refresh');
+    await page.waitForFunction(() => document.querySelector('#monitor-alert').textContent.includes('Unable to verify'));
+    await page.unroute(monitorRoute);
+    // An older successful poll must not hide a newer monitor failure.
+    let releaseOldMonitor, oldMonitorRequested, monitorCalls = 0;
+    const oldMonitorGate = new Promise(resolve => { releaseOldMonitor = resolve; });
+    const oldMonitorSeen = new Promise(resolve => { oldMonitorRequested = resolve; });
+    await page.route(monitorRoute, async route => {
+      const call = ++monitorCalls;
+      if (call === 1) { oldMonitorRequested(); await oldMonitorGate; }
+      const result = call === 1
+        ? { task_running: true, pass_in_progress: false, last_result: 'success', consecutive_failures: 0, last_success_at: 'old-success', current_pass_seconds: null }
+        : { task_running: true, pass_in_progress: false, last_result: 'failure', consecutive_failures: 1, last_success_at: null, current_pass_seconds: null };
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(result) });
+    });
+    await page.click('#refresh');
+    await oldMonitorSeen;
+    await page.click('#refresh');
+    await page.waitForFunction(() => document.querySelector('#monitor-alert').textContent.includes('failed its last pass'));
+    await page.evaluate(() => { document.querySelector('#notice').textContent = 'Waiting for earlier refresh'; });
+    releaseOldMonitor();
+    await page.waitForFunction(() => document.querySelector('#notice').textContent.includes('Workspace refreshed'));
+    assert.match(await page.locator('#monitor-alert').innerText(), /failed its last pass/);
+    await page.unroute(monitorRoute);
+    // An older workspace load must not replace newer account data either.
+    let releaseOldAccounts, oldAccountsRequested, accountCalls = 0;
+    const oldAccountsGate = new Promise(resolve => { releaseOldAccounts = resolve; });
+    const oldAccountsSeen = new Promise(resolve => { oldAccountsRequested = resolve; });
+    await page.route('**/v1/admin/accounts', async route => {
+      const call = ++accountCalls;
+      if (call === 1) { oldAccountsRequested(); await oldAccountsGate; await route.fulfill({ status: 200, contentType: 'application/json', body: '{"accounts":[]}' }); }
+      else await route.continue();
+    });
+    await page.click('#refresh');
+    await oldAccountsSeen;
+    await page.evaluate(() => { document.querySelector('#notice').textContent = 'Waiting for newer workspace'; });
+    await page.click('#refresh');
+    await page.waitForFunction(() => document.querySelector('#notice').textContent.includes('Workspace refreshed'));
+    await page.evaluate(() => { document.querySelector('#notice').textContent = 'Waiting for earlier workspace'; });
+    releaseOldAccounts();
+    await page.waitForFunction(() => document.querySelector('#notice').textContent.includes('Workspace refreshed'));
+    assert.equal(await page.locator('#account-list .list-row').count(), 1);
+    assert.match(await page.locator('#account-list').textContent(), /<img src=x/);
+    await page.unroute('**/v1/admin/accounts');
     await page.unroute('**/v1/admin/accounts/*/status');
     await page.route('**/v1/admin/accounts/*/status', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"state":"disconnected","intervention_required":false}' }));
     await page.click('#refresh');
     await page.waitForFunction(() => document.querySelector('#session-alert').textContent.includes('disconnected'));
+    await page.waitForFunction(() => document.querySelector('#monitor-alert').hidden);
     await page.unroute('**/v1/admin/accounts/*/status');
     await page.route('**/v1/admin/accounts/*/status', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":{"code":"unavailable"}}' }));
     await page.click('#refresh');
@@ -130,6 +189,8 @@ const executable = chromiumPackage.default;
     assert.equal(await page.locator('#account-list .list-row').count(), 0);
     assert.equal(await page.locator('#audit-list .audit-row').count(), 0);
     assert.equal(await page.locator('#session-events .session-event').count(), 0);
+    assert.equal(await page.locator('#monitor-summary').textContent(), '');
+    assert.equal(await page.locator('#monitor-alert').textContent(), '');
     await page.fill('#owner-token', process.env.TG_TEST_OWNER);
     await page.click('#login-form button[type=submit]');
     await page.waitForSelector('#app:not([hidden])');

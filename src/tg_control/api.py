@@ -31,6 +31,7 @@ from .config import Settings
 from .core import BatchRejected, Gateway
 from .db import Account, AuditEvent, Client, Grant, Setting, make_engine, make_sessions
 from .mcp_server import RemoteBackend, create_mcp_server
+from .monitoring import SessionMonitorProgress
 from .policy import GrantInput
 from .request_audit import BoundaryAudit, RequestAudit, request_id_context
 from .schemas import Batch
@@ -96,6 +97,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
         sessions, selected_adapter, timeout_seconds=settings.operation_timeout_seconds
     )
     fernet = Fernet(settings.encryption_key)
+    monitor_progress = SessionMonitorProgress()
     mcp = create_mcp_server(RemoteBackend(gateway, sessions))
     # Outer SecurityBoundary/TrustedHostMiddleware validate Origin/Host for every MCP request.
     mcp_app = mcp.streamable_http_app(
@@ -147,15 +149,20 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
 
             async def monitor_sessions() -> None:
                 while True:
+                    monitor_progress.begin()
                     try:
                         await gateway.maintain_sessions()
                     except Exception:
+                        monitor_progress.finish(success=False)
                         logging.getLogger("tg_control.maintenance").error(
                             "session monitoring failed"
                         )
+                    else:
+                        monitor_progress.finish(success=True)
                     await asyncio.sleep(SESSION_MONITOR_INTERVAL_SECONDS)
 
             tasks = [asyncio.create_task(maintenance()), asyncio.create_task(monitor_sessions())]
+            app.state.session_monitor_task = tasks[1]
             async with mcp.session_manager.run():
                 yield
         finally:
@@ -431,6 +438,15 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
             owner_audit(session, "update_policy", account_id=aid, subject_client_id=cid)
             session.commit()
             return {"updated": True}
+
+    @app.get("/v1/admin/session-monitor", dependencies=[Depends(owner)])
+    async def session_monitor_status():
+        # This is process-local task progress, not proof that any account is healthy.
+        task = getattr(app.state, "session_monitor_task", None)
+        with sessions() as session:
+            owner_audit(session, "view_session_monitor")
+            session.commit()
+        return monitor_progress.snapshot(task_running=task is not None and not task.done())
 
     @app.get("/v1/admin/audit", dependencies=[Depends(owner)])
     async def get_audit(

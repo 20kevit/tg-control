@@ -3,3 +3,5 @@
 .nav-icon svg,.stat-icon svg,.icon-button svg{width:19px;height:19px;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;fill:none}.icon-button svg{width:16px;height:16px;vertical-align:middle}.stat-icon svg{width:18px;height:18px}
 
 .session-alert{margin-top:14px;padding:13px 15px;border:1px solid #eec6b9;border-radius:8px;background:#fff3ed;color:#8d4839;font-size:12px;line-height:1.5;font-weight:650}
+
+.monitor-summary{font-size:11px;margin-top:6px}
