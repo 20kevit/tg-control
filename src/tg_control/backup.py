@@ -111,9 +111,17 @@ def _service(connection: dict[str, str], scratch: Path):
     path = scratch / "pg_service.conf"
     text = "[tgcontrol]\n" + "".join(f"{key}={value}\n" for key, value in connection.items())
     _private_write(path, text.encode("utf-8"))
-    env = {key: value for key, value in os.environ.items() if not key.startswith("PG")}
-    env["PGSERVICEFILE"] = str(path)
-    env["PGSERVICE"] = "tgcontrol"
+    # Do not pass application secrets, PG* overrides, Python injection, loader
+    # overrides, or the caller's ~/.pgpass to child tools. Explicit TLS paths
+    # and connection settings must come from the private database URL file.
+    env = {
+        "PATH": os.defpath,
+        "HOME": str(scratch),
+        "TMPDIR": str(scratch),
+        "LANG": "C.UTF-8",
+        "PGSERVICEFILE": str(path),
+        "PGSERVICE": "tgcontrol",
+    }
     yield env
 
 
@@ -219,35 +227,30 @@ def create_backup(
                     [pg_dump, "--format=custom", "--no-owner", "--no-privileges"],
                     env=env,
                     stdout=target,
-                    stderr=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
                     check=False,
                 )
             if result.returncode:
                 raise BackupError("PostgreSQL backup failed; check server and tool compatibility")
         state_files = list(_state_files(state_dir)) if state_dir else []
         fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        try:
-            with os.fdopen(fd, "wb") as encrypted:
-                writer = _EncryptWriter(encrypted, key)
-                manifest = json.dumps(
-                    {"version": 1, "includes_state": state_dir is not None}
-                ).encode()
-                with tarfile.open(fileobj=writer, mode="w|") as archive:
-                    _tar_file(archive, "manifest.json", io.BytesIO(manifest), len(manifest))
-                    with dump.open("rb") as file:
-                        _tar_file(archive, "database.dump", file, dump.stat().st_size)
-                    for account_id, path in state_files:
-                        state_fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-                        with os.fdopen(state_fd, "rb") as file:
-                            info = os.fstat(file.fileno())
-                            if not stat.S_ISREG(info.st_mode):
-                                raise BackupError("invalid synthetic account state")
-                            _tar_file(archive, f"state/{account_id}/state.enc", file, info.st_size)
-                writer.finish()
-        except BaseException:
-            # Only remove the incomplete file created by this invocation, never an existing backup.
-            output.unlink(missing_ok=True)
-            raise
+        # On failure leave the incomplete, encrypted file for owner inspection.
+        # Unlinking by pathname could delete a different file substituted in a race.
+        with os.fdopen(fd, "wb") as encrypted:
+            writer = _EncryptWriter(encrypted, key)
+            manifest = json.dumps({"version": 1, "includes_state": state_dir is not None}).encode()
+            with tarfile.open(fileobj=writer, mode="w|") as archive:
+                _tar_file(archive, "manifest.json", io.BytesIO(manifest), len(manifest))
+                with dump.open("rb") as file:
+                    _tar_file(archive, "database.dump", file, dump.stat().st_size)
+                for account_id, path in state_files:
+                    state_fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                    with os.fdopen(state_fd, "rb") as file:
+                        info = os.fstat(file.fileno())
+                        if not stat.S_ISREG(info.st_mode):
+                            raise BackupError("invalid synthetic account state")
+                        _tar_file(archive, f"state/{account_id}/state.enc", file, info.st_size)
+            writer.finish()
 
 
 def _decrypt(archive: Path, output: Path, key: bytes) -> None:
@@ -278,27 +281,21 @@ def _decrypt(archive: Path, output: Path, key: bytes) -> None:
             raise BackupError("backup authentication failed") from None
 
 
-def _empty_database(connection: dict[str, str]) -> bool:
-    with psycopg.connect(**connection) as db:
-        with db.cursor() as cursor:
-            cursor.execute("""
-                SELECT
-                  EXISTS (SELECT 1 FROM pg_namespace n WHERE n.nspname NOT IN
-                    ('pg_catalog', 'information_schema', 'public') AND left(n.nspname, 3) <> 'pg_')
-                  OR EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-                    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f'))
-                  OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-                    WHERE n.nspname = 'public')
-                  OR EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
-                    WHERE n.nspname = 'public' AND t.typtype IN ('d', 'e', 'c', 'r', 'm'))
-                  OR EXISTS (SELECT 1 FROM pg_extension e WHERE e.extname <> 'plpgsql')
-                  OR EXISTS (SELECT 1 FROM pg_largeobject_metadata)
-                  OR EXISTS (SELECT 1 FROM pg_event_trigger)
-                  OR EXISTS (SELECT 1 FROM pg_publication)
-                  OR EXISTS (SELECT 1 FROM pg_collation c
-                    JOIN pg_namespace n ON n.oid = c.collnamespace WHERE n.nspname = 'public')
-            """)
-            return not cursor.fetchone()[0]
+def _empty_database(env: dict[str, str]) -> bool:
+    # A separate isolated process ensures the safety check and pg_restore use
+    # exactly the same libpq service file and cannot inherit ambient PG* values.
+    result = subprocess.run(
+        [sys.executable, "-I", "-m", "tg_control.backup_probe"],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 2:
+        return False
+    raise BackupError("restore target could not be verified")
 
 
 def restore_backup(
@@ -341,6 +338,7 @@ def restore_backup(
             if (
                 not isinstance(manifest, dict)
                 or set(manifest) != {"version", "includes_state"}
+                or type(manifest["version"]) is not int
                 or manifest["version"] != 1
                 or not isinstance(manifest["includes_state"], bool)
             ):
@@ -367,19 +365,19 @@ def restore_backup(
                 if not valid:
                     raise BackupError("invalid backup path")
                 state_members.append((parts[1], member))
-            if not _empty_database(connection):
-                raise BackupError("restore database is not empty")
-            dump = scratch / "database.dump"
-            content = tar.extractfile("database.dump")
-            if content is None:
-                raise BackupError("invalid database backup")
-            fd = os.open(dump, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "wb") as target:
-                shutil.copyfileobj(content, target, CHUNK)
-            if state_dir:
-                # Exclusive create; never overwrite an existing directory.
-                state_dir.mkdir(mode=0o700)
             with _service(connection, scratch) as env:
+                if not _empty_database(env):
+                    raise BackupError("restore database is not empty")
+                dump = scratch / "database.dump"
+                content = tar.extractfile("database.dump")
+                if content is None:
+                    raise BackupError("invalid database backup")
+                fd = os.open(dump, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as target:
+                    shutil.copyfileobj(content, target, CHUNK)
+                if state_dir:
+                    # Exclusive create; never overwrite an existing directory.
+                    state_dir.mkdir(mode=0o700)
                 result = subprocess.run(
                     [
                         pg_restore,
@@ -392,7 +390,7 @@ def restore_backup(
                     ],
                     env=env,
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
                     check=False,
                 )
             if result.returncode:

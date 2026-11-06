@@ -28,7 +28,7 @@ def secret(path, content):
     return path
 
 
-def test_encrypted_postgres_backup_restore_and_negative_paths(tmp_path):
+def test_encrypted_postgres_backup_restore_and_negative_paths(tmp_path, monkeypatch):
     server = pgserver.get_server(tmp_path / "backup-pgdata", cleanup_mode="delete")
     try:
         with psycopg.connect(server.get_uri(), autocommit=True) as db:
@@ -110,6 +110,26 @@ def test_encrypted_postgres_backup_restore_and_negative_paths(tmp_path):
         assert output.stat().st_mode & 0o077 == 0
         with pytest.raises(FileExistsError):
             create_backup(source_file, key_file, output, state_dir=state, bin_dir=PG_BIN)
+        partial = tmp_path / "partial.tgcbak"
+        with monkeypatch.context() as failing:
+
+            def fail_finish(_writer):
+                raise OSError("synthetic interrupted write")
+
+            failing.setattr("tg_control.backup._EncryptWriter.finish", fail_finish)
+            with pytest.raises(OSError, match="interrupted"):
+                create_backup(source_file, key_file, partial, state_dir=state, bin_dir=PG_BIN)
+        assert partial.exists() and partial.stat().st_mode & 0o077 == 0
+        assert b"synthetic backup marker" not in partial.read_bytes()
+        with pytest.raises(BackupError, match="authentication"):
+            restore_backup(
+                target_file,
+                key_file,
+                partial,
+                state_dir=tmp_path / "partial-state",
+                confirm_empty=True,
+                bin_dir=PG_BIN,
+            )
 
         cli_output, cli_state = tmp_path / "cli.tgcbak", tmp_path / "cli-state"
         base = [sys.executable, "-m", "tg_control.backup"]
@@ -203,9 +223,21 @@ def test_encrypted_postgres_backup_restore_and_negative_paths(tmp_path):
                 bin_dir=PG_BIN,
             )
         assert not restored.exists()
-        restore_backup(
-            target_file, key_file, output, state_dir=restored, confirm_empty=True, bin_dir=PG_BIN
-        )
+        # A caller's ambient libpq service must not redirect the empty-target
+        # check, and unrelated secrets must not be inherited by child tools.
+        with monkeypatch.context() as poisoned:
+            poisoned.setenv("PGSERVICE", "attacker-service")
+            poisoned.setenv("PGSERVICEFILE", str(tmp_path / "does-not-exist"))
+            poisoned.setenv("PGOPTIONS", "-c default_transaction_read_only=on")
+            poisoned.setenv("TG_SYNTHETIC_SECRET_SENTINEL", "should-not-be-inherited")
+            restore_backup(
+                target_file,
+                key_file,
+                output,
+                state_dir=restored,
+                confirm_empty=True,
+                bin_dir=PG_BIN,
+            )
         restored_settings = Settings(
             target_url,
             settings.owner_token,
@@ -290,3 +322,47 @@ def test_backup_secret_file_permissions_and_url_errors_are_sanitized(tmp_path):
     with pytest.raises(BackupError) as error:
         _connection(invalid)
     assert "synthetic-password" not in str(error.value)
+
+
+def test_backup_tool_environment_excludes_ambient_secrets_and_libpq_overrides(
+    tmp_path, monkeypatch
+):
+    from tg_control.backup import _service
+
+    monkeypatch.setenv("TG_SYNTHETIC_SECRET_SENTINEL", "should-not-be-inherited")
+    monkeypatch.setenv("PGHOST", "malicious-host")
+    monkeypatch.setenv("PGOPTIONS", "-c statement_timeout=1")
+    monkeypatch.setenv("PYTHONPATH", "/synthetic-injection")
+    monkeypatch.setenv("LD_PRELOAD", "/synthetic-injection")
+    with _service({"dbname": "synthetic"}, tmp_path) as environment:
+        assert set(environment) == {"PATH", "HOME", "TMPDIR", "LANG", "PGSERVICE", "PGSERVICEFILE"}
+        assert environment["HOME"] == str(tmp_path)
+        assert environment["PGSERVICE"] == "tgcontrol"
+        assert "synthetic" not in environment["PGSERVICEFILE"]
+        assert (tmp_path / "pg_service.conf").stat().st_mode & 0o077 == 0
+
+
+@pytest.mark.parametrize("version", [True, 1.0, "1"])
+def test_authenticated_manifest_version_must_be_an_integer(tmp_path, version):
+    import base64
+    import io
+    import json
+    import tarfile
+
+    from tg_control.backup import _EncryptWriter, _tar_file
+
+    key = Fernet.generate_key()
+    key_file = secret(tmp_path / "key", key)
+    url_file = secret(tmp_path / "uri", "postgresql://localhost/test")
+    archive_path = tmp_path / "invalid-version.tgcbak"
+    with archive_path.open("wb") as output:
+        writer = _EncryptWriter(output, base64.urlsafe_b64decode(key))
+        with tarfile.open(fileobj=writer, mode="w|") as archive:
+            manifest = json.dumps({"version": version, "includes_state": False}).encode()
+            _tar_file(archive, "manifest.json", io.BytesIO(manifest), len(manifest))
+            _tar_file(archive, "database.dump", io.BytesIO(b"x"), 1)
+        writer.finish()
+    with pytest.raises(BackupError, match="unsupported backup manifest"):
+        restore_backup(
+            url_file, key_file, archive_path, state_dir=None, confirm_empty=True, bin_dir=PG_BIN
+        )
