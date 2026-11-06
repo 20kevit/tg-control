@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from math import isfinite
 from typing import Any, Protocol
 
 
@@ -27,34 +28,51 @@ class SessionStatus:
     intervention_required: bool = False
 
 
+ADAPTER_ERROR_CODES = frozenset(
+    {
+        "not_found",
+        "unsupported_operation",
+        "disconnected",
+        "reauth_required",
+        "timeout",
+        "reconnect_timeout",
+        "rate_limit_timeout",
+        "rate_limited",
+        "denied",
+        "credential_revoked",
+        "adapter_failure",
+        "media_expired",
+    }
+)
+
+
+def normalized_error_code(value: object) -> str:
+    return value if type(value) is str and value in ADAPTER_ERROR_CODES else "adapter_failure"
+
+
+def valid_retry_after(value: object) -> bool:
+    if type(value) not in (int, float):
+        return False
+    try:
+        return value >= 0 and isfinite(value)
+    except (OverflowError, ValueError):
+        return False
+
+
 class AdapterError(Exception):
     """A safe, normalized error; never include upstream text in client output."""
 
     def __init__(self, code: str, *, outcome_unknown: bool = False):
-        allowed = {
-            "not_found",
-            "unsupported_operation",
-            "disconnected",
-            "reauth_required",
-            "timeout",
-            "reconnect_timeout",
-            "rate_limit_timeout",
-            "rate_limited",
-            "denied",
-            "credential_revoked",
-            "adapter_failure",
-            "media_expired",
-        }
-        self.code = code if code in allowed else "adapter_failure"
+        self.code = normalized_error_code(code)
         super().__init__(self.code)
-        self.outcome_unknown = outcome_unknown
+        self.outcome_unknown = outcome_unknown if type(outcome_unknown) is bool else True
 
 
 class RateLimited(AdapterError):
     """The adapter guarantees the operation was rejected, not applied."""
 
     def __init__(self, retry_after: float):
-        if not 0 <= retry_after < float("inf"):
+        if not valid_retry_after(retry_after):
             raise ValueError("retry_after must be a finite, non-negative duration")
         super().__init__("rate_limited")
         self.retry_after = retry_after
@@ -64,6 +82,8 @@ class SessionUnavailable(AdapterError):
     """Only for operations definitely not applied; uncertain mutations must stay unknown."""
 
     def __init__(self, intervention_required: bool):
+        if type(intervention_required) is not bool:
+            raise ValueError("invalid session intervention flag")
         super().__init__("reauth_required" if intervention_required else "disconnected")
         self.intervention_required = intervention_required
 

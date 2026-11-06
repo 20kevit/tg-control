@@ -20,6 +20,8 @@ from .adapters.base import (
     SessionStatus,
     SessionUnavailable,
     TelegramAdapter,
+    normalized_error_code,
+    valid_retry_after,
 )
 from .auth import Principal, is_active
 from .cache import ReadCache
@@ -70,6 +72,40 @@ class Gateway:
         self._cache = ReadCache()
         self._session_monitor_lock = asyncio.Lock()
 
+    @staticmethod
+    def _safe_adapter_error(exc: AdapterError, *, mutation: bool) -> tuple[str, bool]:
+        try:
+            raw_code = getattr(exc, "code", None)
+            raw_unknown = getattr(exc, "outcome_unknown", None)
+        except Exception:
+            return "adapter_failure", mutation
+        if type(raw_unknown) is not bool:
+            return "adapter_failure", mutation
+        code = normalized_error_code(raw_code)
+        unknown = raw_unknown
+        # A malformed or generic adapter failure does not establish that a write had no effect.
+        if mutation and (
+            type(raw_code) is not str or raw_code != code or code == "adapter_failure"
+        ):
+            unknown = True
+        return code, unknown
+
+    @staticmethod
+    def _session_intervention(exc: SessionUnavailable) -> bool | None:
+        try:
+            intervention = exc.intervention_required
+            expected = "reauth_required" if intervention else "disconnected"
+            if (
+                type(intervention) is bool
+                and type(exc.code) is str
+                and exc.code == expected
+                and exc.outcome_unknown is False
+            ):
+                return intervention
+        except Exception:
+            pass
+        return None
+
     async def _call(
         self,
         account_id: str,
@@ -101,31 +137,54 @@ class Gateway:
             try:
                 return await asyncio.wait_for(fn(), timeout=remaining)
             except RateLimited as exc:
-                immediate_retries = immediate_retries + 1 if exc.retry_after == 0 else 0
+                try:
+                    delay = exc.retry_after
+                    valid = (
+                        type(exc.code) is str
+                        and exc.code == "rate_limited"
+                        and exc.outcome_unknown is False
+                        and valid_retry_after(delay)
+                    )
+                except Exception:
+                    valid = False
+                if not valid:
+                    raise AdapterError("adapter_failure", outcome_unknown=mutation) from None
+                immediate_retries = immediate_retries + 1 if delay == 0 else 0
                 remaining = deadline - time.monotonic()
                 # Only repeated zero-duration rejections are capped to avoid a tight loop.
-                if immediate_retries > 8 or exc.retry_after >= remaining:
-                    raise RetryDeadline(exc.retry_after) from None
+                if immediate_retries > 8 or delay >= remaining:
+                    raise RetryDeadline(delay) from None
                 try:
-                    await asyncio.wait_for(self.sleep(exc.retry_after), timeout=remaining)
+                    await asyncio.wait_for(self.sleep(delay), timeout=remaining)
                 except TimeoutError:
-                    raise RetryDeadline(exc.retry_after) from None
+                    raise RetryDeadline(delay) from None
                 await check_retry()
             except SessionUnavailable as exc:
-                if exc.intervention_required or reconnected:
-                    raise
+                intervention = self._session_intervention(exc)
+                if intervention is None:
+                    raise AdapterError("adapter_failure", outcome_unknown=mutation) from None
+                if intervention or reconnected:
+                    raise SessionUnavailable(intervention) from None
                 reconnected = True
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise AdapterError("timeout", outcome_unknown=False) from None
                 try:
-                    await asyncio.wait_for(self.adapter.reconnect(account_id), timeout=remaining)
+                    status = await asyncio.wait_for(
+                        self.adapter.reconnect(account_id), timeout=remaining
+                    )
                 except TimeoutError:
                     raise AdapterError("reconnect_timeout") from None
+                status = self._validated_session_status(status)
+                if status.state != "ready":
+                    raise SessionUnavailable(status.intervention_required) from None
                 await check_retry()
             except TimeoutError:
                 # A timeout while a mutation is in flight may have already caused an effect.
                 raise AdapterError("timeout", outcome_unknown=mutation) from None
+            except AdapterError as exc:
+                code, unknown = self._safe_adapter_error(exc, mutation=mutation)
+                raise AdapterError(code, outcome_unknown=unknown) from None
 
     @staticmethod
     def _permission(action: Action) -> Permission:
@@ -248,7 +307,7 @@ class Gateway:
                 try:
                     allowed, error = await self._authorize(session, principal, action)
                 except AdapterError as exc:
-                    allowed, error = False, exc.code
+                    allowed, error = False, self._safe_adapter_error(exc, mutation=False)[0]
                 except Exception:
                     allowed, error = False, "adapter_failure"
                 decisions.append((allowed, error))
@@ -315,16 +374,32 @@ class Gateway:
                     }
                     outcome, error = "success", None
                 except AdapterError as exc:
+                    mutation = action.operation in MUTATIONS
+                    code, unknown = self._safe_adapter_error(exc, mutation=mutation)
+                    retry_after = None
+                    if isinstance(exc, RetryDeadline):
+                        try:
+                            delay = getattr(exc, "retry_after", None)
+                        except Exception:
+                            delay = None
+                        if (
+                            code == "rate_limit_timeout"
+                            and not unknown
+                            and valid_retry_after(delay)
+                        ):
+                            retry_after = delay
+                        else:
+                            code, unknown = "adapter_failure", mutation
                     item = {
                         "index": index,
                         "operation": action.operation,
                         "status": "failure",
-                        "error": exc.code,
-                        "outcome_unknown": exc.outcome_unknown,
+                        "error": code,
+                        "outcome_unknown": unknown,
                     }
-                    if isinstance(exc, RetryDeadline):
-                        item["retry_after"] = exc.retry_after
-                    outcome, error = "failure", exc.code
+                    if retry_after is not None:
+                        item["retry_after"] = retry_after
+                    outcome, error = "failure", code
                 except Exception:
                     # Never surface upstream messages (which may contain content or secrets).
                     item = {
@@ -382,7 +457,7 @@ class Gateway:
                 )
                 resolved[(account_id, chat_id)] = chat if chat and chat.id == chat_id else None
             except AdapterError as exc:
-                errors[(account_id, chat_id)] = exc.code
+                errors[(account_id, chat_id)] = self._safe_adapter_error(exc, mutation=False)[0]
             except Exception:
                 errors[(account_id, chat_id)] = "adapter_failure"
         for action, item in zip(batch.actions, results):
@@ -609,14 +684,15 @@ class Gateway:
             )
             status = self._validated_session_status(status)
         except SessionUnavailable as exc:
-            state = "reauth_required" if exc.intervention_required else "disconnected"
+            intervention = self._session_intervention(exc)
+            if intervention is None:
+                return account_id, "unavailable", "adapter_failure"
+            state = "reauth_required" if intervention else "disconnected"
             return account_id, state, state
         except TimeoutError:
             return account_id, "unavailable", "timeout"
         except AdapterError as exc:
-            # Reapply the adapter error allowlist even if an exception was mutated.
-            code = AdapterError(exc.code).code if type(exc.code) is str else "adapter_failure"
-            return account_id, "unavailable", code
+            return account_id, "unavailable", self._safe_adapter_error(exc, mutation=False)[0]
         except Exception:
             # Never retain exception text, account content, or login details.
             return account_id, "unavailable", "adapter_failure"
@@ -716,11 +792,19 @@ class Gateway:
                     await asyncio.wait_for(operation, timeout=self.timeout_seconds)
                 )
             except SessionUnavailable as exc:
-                failure = {
-                    "state": exc.code,
-                    "intervention_required": exc.intervention_required,
-                    "outcome_unknown": False,
-                }
+                intervention = self._session_intervention(exc)
+                if intervention is not None:
+                    failure = {
+                        "state": "reauth_required" if intervention else "disconnected",
+                        "intervention_required": intervention,
+                        "outcome_unknown": False,
+                    }
+                else:
+                    failure = {
+                        "state": "adapter_failure",
+                        "intervention_required": True,
+                        "outcome_unknown": reconnect,
+                    }
             except TimeoutError:
                 failure = {
                     "state": "reconnect_timeout" if reconnect else "timeout",
@@ -728,10 +812,11 @@ class Gateway:
                     "outcome_unknown": reconnect,
                 }
             except AdapterError as exc:
+                code, unknown = self._safe_adapter_error(exc, mutation=reconnect)
                 failure = {
-                    "state": exc.code,
+                    "state": code,
                     "intervention_required": True,
-                    "outcome_unknown": exc.outcome_unknown or reconnect,
+                    "outcome_unknown": unknown or reconnect,
                 }
             except Exception:
                 # Do not expose upstream text, which may contain sensitive data.
