@@ -56,6 +56,35 @@ async def test_stdio_executable_uses_gateway_and_revocation(settings, tmp_path):
     task = asyncio.create_task(server.serve(sockets=[sock]))
     try:
         await asyncio.wait_for(ready.wait(), timeout=15)
+        owner_file = tmp_path / "owner-token"
+        owner_file.write_text(settings.owner_token)
+        owner_file.chmod(0o600)
+        health_env = {
+            **os.environ,
+            "TG_OWNER_TOKEN_FILE": str(owner_file),
+            "TG_HEALTH_PORT": str(sock.getsockname()[1]),
+            "HTTP_PROXY": "http://127.0.0.1:1",
+        }
+
+        async def healthcheck():
+            process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "tg_control.healthcheck",
+                env=health_env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=15)
+            assert settings.owner_token.encode() not in stdout + stderr
+            return process.returncode, stderr
+
+        code, _stderr = await healthcheck()
+        assert code == 0
+        owner_file.write_text("wrong-synthetic-token-" + "x" * 32)
+        code, stderr = await healthcheck()
+        assert code == 1 and stderr.strip() == b"health check failed"
+        owner_file.write_text(settings.owner_token)
         async with httpx.AsyncClient(base_url=origin, trust_env=False) as api:
             owner = {"Authorization": "Bearer " + settings.owner_token}
             account = (

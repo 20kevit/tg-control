@@ -64,6 +64,7 @@ def test_compose_security_posture_is_local_only():
     assert override["services"]["db"]["ports"] == ["127.0.0.1:55432:5432"]
     dockerfile = (ROOT / "Dockerfile").read_text()
     assert "--require-hashes" in dockerfile and "--workers" in dockerfile and '"1"' in dockerfile
+    assert "tg_control.healthcheck" in dockerfile
     assert "secrets" in (ROOT / ".dockerignore").read_text()
 
 
@@ -83,3 +84,16 @@ def test_secret_setup_refuses_a_single_existing_target_without_partial_writes(tm
     assert result.returncode != 0
     assert [path.name for path in directory.iterdir()] == ["backup_database_url"]
     assert existing.read_text() == "existing synthetic value"
+
+
+def test_healthcheck_invalid_config_fails_without_disclosing_file_contents(tmp_path):
+    token = "synthetic-owner-token-" + "x" * 32
+    token_file = tmp_path / "owner"
+    token_file.write_text(token)
+    token_file.chmod(0o600)
+    env = {**os.environ, "TG_OWNER_TOKEN_FILE": str(token_file), "TG_HEALTH_PORT": "not-a-port"}
+    result = subprocess.run(
+        [sys.executable, "-m", "tg_control.healthcheck"], env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 1 and result.stderr.strip() == "health check failed"
+    assert token not in result.stdout + result.stderr and str(token_file) not in result.stderr

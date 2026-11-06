@@ -127,9 +127,12 @@ def test_api_batch_preflight_and_immediate_policy_revocation(api, settings):
 
 def test_input_origin_host_size_and_security_headers(api, settings):
     owner = auth(settings.owner_token)
-    assert api.get("/health/live", headers={"Origin": "https://evil.invalid"}).status_code == 403
-    assert api.get("/health/live", headers={"Host": "evil.invalid"}).status_code == 400
-    ok = api.get("/health/live", headers={"Origin": "http://testserver"})
+    assert (
+        api.get("/health/live", headers={**owner, "Origin": "https://evil.invalid"}).status_code
+        == 403
+    )
+    assert api.get("/health/live", headers={**owner, "Host": "evil.invalid"}).status_code == 400
+    ok = api.get("/health/live", headers={**owner, "Origin": "http://testserver"})
     assert ok.status_code == 200
     assert ok.headers["cache-control"] == "no-store"
     assert "frame-ancestors 'none'" in ok.headers["content-security-policy"]
@@ -188,7 +191,7 @@ def test_audit_and_at_rest_secrecy(api, settings):
 
 def test_settings_session_health_and_owner_authority(api, settings):
     owner, account, client = create_resources(api, settings)
-    assert api.get("/health/ready").json()["mode"] == "synthetic"
+    assert api.get("/health/ready", headers=owner).json()["mode"] == "synthetic"
     assert (
         api.get(f"/v1/admin/accounts/{account['id']}/status", headers=owner).json()["state"]
         == "ready"
@@ -240,3 +243,34 @@ def test_chunked_body_limit_and_duplicate_sensitive_headers(api, settings):
         headers=[("Origin", "http://testserver"), ("Origin", "https://evil.invalid")],
     )
     assert response.status_code == 400
+
+
+def test_health_and_openapi_require_fresh_credentials_and_are_audited(api, settings):
+    owner, _account, client = create_resources(api, settings)
+    token = client["credential"]
+    for path in ("/health/live", "/health/ready", "/openapi.json"):
+        assert api.get(path).status_code == 401
+        assert api.get(path, headers=auth("invalid")).status_code == 401
+        assert api.get(path, headers=owner).status_code == 200
+    for path in ("/health/live", "/health/ready"):
+        assert api.get(path, headers=auth(token)).status_code == 401
+    schema = api.get("/openapi.json", headers=auth(token))
+    assert schema.status_code == 200 and "/v1/execute" in schema.json()["paths"]
+    assert api.post(f"/v1/admin/clients/{client['id']}/revoke", headers=owner).status_code == 200
+    assert api.get("/openapi.json", headers=auth(token)).status_code == 401
+    events = api.get("/v1/admin/audit", headers=owner).json()["events"]
+    assert any(e["event"] == "schema_request" and e["actor_kind"] == "client" for e in events)
+    assert any(e["event"] == "health_request" and e["decision"] == "success" for e in events)
+    assert any(e["event"] == "authentication" and e["decision"] == "denied" for e in events)
+    assert token not in json.dumps(events) and settings.owner_token not in json.dumps(events)
+
+
+def test_health_fails_closed_if_audit_is_unavailable(api, settings, monkeypatch):
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("synthetic-sensitive-exception")
+
+    monkeypatch.setattr("tg_control.request_audit.audit.record", unavailable)
+    response = api.get("/health/live", headers=auth(settings.owner_token))
+    assert response.status_code == 503
+    assert response.json() == {"error": "audit_unavailable", "outcome_unknown": False}
+    assert "synthetic-sensitive-exception" not in response.text

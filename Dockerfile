@@ -13,5 +13,5 @@ RUN python -m pip install --no-cache-dir --no-deps --no-build-isolation . \
 USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://localhost:8000/health/ready', timeout=3).read()" || exit 1
+  CMD python -m tg_control.healthcheck || exit 1
 CMD ["uvicorn", "tg_control.api:app_factory", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-access-log", "--no-server-header", "--no-proxy-headers"]

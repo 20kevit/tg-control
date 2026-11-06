@@ -156,6 +156,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
         version="0.1.0",
         docs_url=None,
         redoc_url=None,
+        openapi_url=None,
         lifespan=lifespan,
     )
     app.state.gateway = gateway
@@ -192,6 +193,18 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
             raise HTTPException(
                 status_code=401, detail="invalid_credential", headers={"WWW-Authenticate": "Bearer"}
             )
+
+    async def authenticated_schema_reader(request: Request) -> None:
+        token = _bearer(request)
+        if verify_owner(token, settings.owner_token):
+            return
+        with sessions() as session:
+            if authenticate(session, token) is not None:
+                return
+        record_auth_failure()
+        raise HTTPException(
+            status_code=401, detail="invalid_credential", headers={"WWW-Authenticate": "Bearer"}
+        )
 
     def owner_audit(
         session, event: str, *, account_id: str | None = None, subject_client_id: str | None = None
@@ -231,11 +244,19 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
             {"error": "storage_unavailable", "outcome_unknown": True}, status_code=503
         )
 
-    @app.get("/health/live")
+    @app.get(
+        "/openapi.json",
+        include_in_schema=False,
+        dependencies=[Depends(authenticated_schema_reader)],
+    )
+    async def openapi_schema():
+        return app.openapi()
+
+    @app.get("/health/live", dependencies=[Depends(owner)])
     async def live():
         return {"status": "ok", "mode": "synthetic"}
 
-    @app.get("/health/ready")
+    @app.get("/health/ready", dependencies=[Depends(owner)])
     async def ready():
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))

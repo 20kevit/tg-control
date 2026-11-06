@@ -23,12 +23,22 @@ class RequestAudit:
         self.owner_token = owner_token
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        path = scope.get("path", "")
         if scope["type"] != "http" or not (
-            scope.get("path", "").startswith("/v1/") or scope.get("path", "").rstrip("/") == "/mcp"
+            path.startswith("/v1/")
+            or path.rstrip("/") == "/mcp"
+            or path in {"/health/live", "/health/ready", "/openapi.json"}
         ):
             await self.app(scope, receive, send)
             return
         request_id = str(uuid.uuid4())
+        event = (
+            "health_request"
+            if path.startswith("/health/")
+            else "schema_request"
+            if path == "/openapi.json"
+            else "http_request"
+        )
         scope.setdefault("state", {})["request_id"] = request_id
         context_token = request_id_context.set(request_id)
         actor_kind, actor_id = "anonymous", None
@@ -54,7 +64,7 @@ class RequestAudit:
                     request_id=request_id,
                     actor_kind=actor_kind,
                     actor_id=actor_id,
-                    event="http_request",
+                    event=event,
                     decision="started",
                 )
                 if scope.get("path", "").rstrip("/") == "/mcp" and actor_kind != "client":
@@ -119,7 +129,7 @@ class RequestAudit:
                         request_id=request_id,
                         actor_kind=actor_kind,
                         actor_id=actor_id,
-                        event="http_request",
+                        event=event,
                         decision="success" if status < 400 else "failure",
                         error_code=None if status < 400 else f"http_{status}",
                     )
