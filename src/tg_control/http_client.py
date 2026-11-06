@@ -7,6 +7,40 @@ from urllib.parse import urlsplit
 import httpx
 
 
+def valid_batch_items(result: dict, operations: list[str]) -> bool:
+    """Check that a successful batch response accounts for every requested action."""
+    items = result.get("items")
+    if not operations or not isinstance(items, list) or len(items) != len(operations):
+        return False
+    for index, (item, operation) in enumerate(zip(items, operations)):
+        if (
+            not isinstance(item, dict)
+            or type(item.get("index")) is not int
+            or item["index"] != index
+            or type(operation) is not str
+            or item.get("operation") != operation
+        ):
+            return False
+        if item.get("status") == "success":
+            if (
+                not isinstance(item.get("data"), dict)
+                or "error" in item
+                or "outcome_unknown" in item
+            ):
+                return False
+        elif item.get("status") == "failure":
+            if (
+                type(item.get("error")) is not str
+                or not item["error"]
+                or type(item.get("outcome_unknown")) is not bool
+                or "data" in item
+            ):
+                return False
+        else:
+            return False
+    return True
+
+
 def validate_base_url(url: str) -> str:
     parsed = urlsplit(url)
     if (

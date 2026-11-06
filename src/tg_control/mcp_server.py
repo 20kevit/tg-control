@@ -12,9 +12,9 @@ from pydantic import ValidationError
 
 from .auth import authenticate
 from .core import BatchRejected, Gateway
-from .http_client import GatewayHttpClient
+from .http_client import GatewayHttpClient, valid_batch_items
 from .request_audit import request_id_context
-from .schemas import Batch
+from .schemas import MUTATIONS, Batch
 
 
 class Backend(Protocol):
@@ -62,13 +62,20 @@ class HttpBackend:
         self.client = client
 
     async def accounts(self, _context: ServerRequestContext) -> dict:
-        _status, result = await self.client.request("GET", "/v1/accounts")
+        status, result = await self.client.request("GET", "/v1/accounts")
+        if not 200 <= status < 300 and "error" not in result:
+            return {"error": "gateway_http_error", "outcome_unknown": False}
         return result
 
     async def execute(self, _context: ServerRequestContext, batch: Batch) -> dict:
-        _status, result = await self.client.request(
+        status, result = await self.client.request(
             "POST", "/v1/execute", batch.model_dump(mode="json")
         )
+        if not 200 <= status < 300 and "error" not in result:
+            return {
+                "error": "gateway_http_error",
+                "outcome_unknown": any(action.operation in MUTATIONS for action in batch.actions),
+            }
         return result
 
 
@@ -108,6 +115,8 @@ def create_mcp_server(backend: Backend) -> Server:
 
     async def call_tool(context, params):
         args = params.arguments or {}
+        operations: list[str] = []
+        mutation = False
         try:
             if params.name == "tg_accounts" and not args:
                 result = await backend.accounts(context)
@@ -118,16 +127,32 @@ def create_mcp_server(backend: Backend) -> Server:
                 except (ValidationError, ValueError, TypeError):
                     result = {"error": "invalid_request"}
                 else:
+                    operations = [action.operation for action in batch.actions]
+                    mutation = any(operation in MUTATIONS for operation in operations)
                     result = await backend.execute(context, batch)
             else:
                 result = {"error": "invalid_request"}
         except Exception:
-            result = {"error": "gateway_unavailable", "outcome_unknown": True}
-        failed = "error" in result or any(
-            item.get("status") == "failure" for item in result.get("items", [])
-        )
+            result = {"error": "gateway_unavailable", "outcome_unknown": mutation}
+        if not isinstance(result, dict):
+            result = {"error": "invalid_gateway_response", "outcome_unknown": mutation}
+        if "error" not in result:
+            invalid = (
+                params.name == "tg_execute" and not valid_batch_items(result, operations)
+            ) or (params.name == "tg_accounts" and not isinstance(result.get("accounts"), list))
+            if invalid:
+                result = {"error": "invalid_gateway_response", "outcome_unknown": mutation}
+        failed = "error" in result
+        if not failed and params.name == "tg_execute":
+            failed = any(item["status"] == "failure" for item in result["items"])
+        try:
+            serialized = json.dumps(result, ensure_ascii=False, allow_nan=False)
+        except (TypeError, ValueError):
+            result = {"error": "invalid_gateway_response", "outcome_unknown": mutation}
+            serialized = json.dumps(result)
+            failed = True
         return types.CallToolResult(
-            content=[types.TextContent(type="text", text=json.dumps(result, ensure_ascii=False))],
+            content=[types.TextContent(type="text", text=serialized)],
             structuredContent=result,
             isError=failed,
         )

@@ -6,6 +6,7 @@ import os
 import socket
 import subprocess
 import sys
+import uuid
 from dataclasses import replace
 from pathlib import Path
 
@@ -97,7 +98,10 @@ async def test_stdio_executable_uses_gateway_and_revocation(settings, tmp_path):
             client = (
                 await api.post("/v1/admin/clients", headers=owner, json={"name": "stdio client"})
             ).json()
-            policy = {"read": {"enabled": True, "allow_types": ["public_channel"]}}
+            policy = {
+                "read": {"enabled": True, "allow_types": ["public_channel"]},
+                "write": {"enabled": True, "allow_chats": ["public-channel"]},
+            }
             endpoint = f"/v1/admin/clients/{client['id']}/accounts/{account['id']}/policy"
             assert (await api.put(endpoint, headers=owner, json=policy)).status_code == 200
             token_file = tmp_path / "stdio-token"
@@ -128,6 +132,54 @@ async def test_stdio_executable_uses_gateway_and_revocation(settings, tmp_path):
 
             code, data = await cli_accounts()
             assert code == 0 and data["accounts"][0]["id"] == account["id"]
+            batch = {
+                "idempotency_key": str(uuid.uuid4()),
+                "actions": [
+                    {
+                        "operation": "send",
+                        "account_id": account["id"],
+                        "chat_id": "public-channel",
+                        "text": "synthetic partial batch",
+                    },
+                    {
+                        "operation": "delete",
+                        "account_id": account["id"],
+                        "chat_id": "public-channel",
+                        "message_id": 999_999,
+                    },
+                ],
+            }
+            process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "tg_control.cli",
+                "--url",
+                origin,
+                "--token-file",
+                str(token_file),
+                "execute",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(json.dumps(batch).encode()), timeout=15
+                )
+            except TimeoutError:
+                if process.returncode is None:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                await process.wait()
+                raise
+            assert process.returncode == 1
+            assert [item["status"] for item in json.loads(stdout)["items"]] == [
+                "success",
+                "failure",
+            ]
+            assert client["credential"].encode() not in stdout + stderr
             parameters = StdioServerParameters(
                 command=sys.executable, args=["-m", "tg_control.mcp_stdio"], env=child_env, cwd=ROOT
             )
@@ -137,6 +189,14 @@ async def test_stdio_executable_uses_gateway_and_revocation(settings, tmp_path):
                     await session.initialize()
                     result = await session.call_tool("tg_accounts", {})
                     assert result.structured_content["accounts"][0]["id"] == account["id"]
+                    batch["idempotency_key"] = str(uuid.uuid4())
+                    result = await session.call_tool("tg_execute", {"batch": batch})
+                    assert result.is_error
+                    assert [item["status"] for item in result.structured_content["items"]] == [
+                        "success",
+                        "failure",
+                    ]
+                    assert client["credential"] not in str(result)
                     await api.post(f"/v1/admin/clients/{client['id']}/revoke", headers=owner)
                     result = await session.call_tool("tg_accounts", {})
                     assert (

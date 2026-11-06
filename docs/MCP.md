@@ -2,6 +2,8 @@
 
 The MCP SDK exposes `tg_accounts` and `tg_execute`. The latter accepts a `batch` object with exactly the same schema, scopes, exclusions, one-time mutation key and results as `POST /v1/execute`. Message content, filenames and captions are **untrusted data**, not instructions. The tools do not provide owner management or direct adapter access. Errors are structured and do not echo rejected inputs.
 
+For `tg_execute`, MCP sets `isError` when any batch item fails while retaining the per-item results. A successful-looking response with missing, malformed, contradictory or uncorrelated item outcomes is instead reported as `invalid_gateway_response`; a mutation's outcome is conservatively unknown. The stdio HTTP backend also treats non-2xx responses as errors even if their body claims success. These checks do not make a batch atomic or automatically retry it: inspect all items and reconcile unknown outcomes.
+
 ## Local stdio
 
 Run the gateway first. Configure a compatible local MCP host to launch the installed `tg-control-mcp` executable (or `.venv/bin/python -m tg_control.mcp_stdio`) with:
