@@ -5,7 +5,7 @@ Personal Telegram AI Gateway for multiple Telegram user accounts and multiple AI
 ## Project status
 
 - Repository: https://github.com/20kevit/tg-control
-- Implementation is not yet started.
+- Synthetic foundation implemented; production gateway remains incomplete. See [delivery evidence](docs/DELIVERY.md) and [architecture baseline](docs/IMPLEMENTATION.md).
 - Product, architecture, security invariants, and delivery gates are owned by the project owner.
 - Arena is the autonomous implementation executor. It should continue through all permitted stages without pausing for routine decisions.
 
@@ -46,3 +46,14 @@ Read this README and all existing repository content. Create the detailed PRD, a
 ## Review protocol
 
 The owner reviews stage evidence, security boundaries, compliance decisions, and approval-gated actions. Arena owns implementation quality and routine engineering decisions. A stage is not complete merely because code exists; its acceptance criteria and tests must pass.
+
+## Synthetic development quick start
+
+```sh
+python -m venv .venv
+.venv/bin/pip install -e .
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/tg-control demo
+```
+
+No Telegram account or API credentials are needed or accepted by the demo.
