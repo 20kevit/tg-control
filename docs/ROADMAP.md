@@ -1,0 +1,16 @@
+# Roadmap and acceptance checklist
+
+Status is evidence-based, not a promise of completion. Stages may overlap only where safe. See `STATUS.md` for executed commands and `ACCEPTANCE.md` for the implemented-vs-outstanding matrix.
+
+- [x] **0 Baseline**: read all existing files/history; maintain PRD, architecture, security, data model, API, ADRs, development/testing guides, roadmap and status; establish a reproducible synthetic-only test command.
+- [x] **1 Compliance research & feasibility**: reviewed official terms and TDLib excerpts, documented risks, owner decision and method limitations; synthetic isolation tests and an offline native ABI probe passed. This completes the research stage, **not** the unresolved legal/owner gate.
+- [x] **2 TDLib proof of concept (offline only)**: defined the replaceable interface and tested synthetic isolation, lifecycle/errors and correlation; built and probed two native client IDs without parameters or networking.
+- [ ] **Native adapter / live behavior**: a real TDLib adapter, authorization, sync, protected-content handling and live end-to-end tests are not implemented. No real account/data until the separate compliance and owner gates are resolved.
+- [x] **3 Foundation (synthetic)**: PostgreSQL models and migrations, authenticated clients, rotation/revocation, account-scoped independent permissions, exclusions, fail-closed audit and input validation, covered by negative tests.
+- [x] **4 Read (synthetic)**: permitted discovery, history, cross-account search/message/media reads; private default deny, result filtering, exclusion and isolation tests.
+- [x] **5 Write (synthetic)**: authorized synthetic send/edit/delete/forward/media and admin, pre-authorize all batch targets, per-item results, retry/deadline and failure tests.
+- [ ] **6 Interfaces**: API, CLI, MCP local and remote, and owner panel share the core/API; authentication, Origin, input validation and end-to-end tests plus usage docs. Synthetic paths implemented and exercised; remote OAuth/ChatGPT interoperability remains unverified.
+- [ ] **7 Hardening/operations**: security review, dependency and regression tests, PostgreSQL integration, reproducible containers, backup/restore/migration guidance, health/monitoring/troubleshooting, retention and failure recovery verified where safe. Synthetic cache/media retention, encrypted persistence and backup/restore are implemented and tested against disposable PostgreSQL. Compose configuration has static checks only; container/image and production deployment verification remain.
+- [ ] **Release / real data**: all applicable requirements mapped to verified tests, no unaddressed high/critical issues, qualified compliance decision and explicit owner approval. No real login/deployment in this engagement without those gates.
+
+Open acceptance items are not implicitly completed by scaffolding or passing only SQLite tests. Additional mandatory capabilities and any technical limitations must be carried forward explicitly.

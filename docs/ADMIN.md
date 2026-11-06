@@ -1,0 +1,10 @@
+# Admin panel (synthetic only)
+
+Open `/admin/` on a local gateway. The owner credential is held in page memory and cleared at sign-out or after 15 minutes of inactivity; it is never saved to browser storage. Logout clears rendered account, policy and audit details and rejects in-flight results from the old session. The UI uses the owner-only HTTP API, not the adapter. It displays the compliance gate, synthetic account/session status, clients, separate policy scopes and exclusions, saved retention settings, and metadata-only audit events. The page checks synthetic session state approximately every 30 seconds while open and keeps a separate in-page warning visible for intervention, disconnection, or failed status checks; it is not an email/push alert service. If the owner credential is rejected, the workspace locks and clears its rendered data.
+
+1. Unlock with the independently provisioned owner token.
+2. Create an account with a reserved fictional `+12025550100`–`+12025550199` number, and create a client. Save the newly issued credential immediately; it appears only once. Rotation invalidates the former credential; revocation disables the client immediately.
+3. Select the client and account in **Access policies**, load the policy, and independently choose Read, Write and Admin grants. Private chats require explicit IDs; exclusions override allowlists/types. Save changes. A new client has no grants.
+4. Inspect audit metadata and settings. Audit pruning requires an explicit owner action. Shorter media retention can immediately and irreversibly delete expired synthetic media; the panel asks before shortening it. Cache TTL 0 disables caching. The panel states whether encrypted synthetic persistence is configured: without it, data disappears on restart even if automatic media expiry is disabled. Backups are separate and required for recovery. See [status](STATUS.md).
+
+Aliases, message data and other text must be treated as untrusted; dynamic UI values are inserted as text nodes. Use a private device and approved TLS boundary; never expose a development instance to the internet. Real Telegram accounts/content remain disabled.

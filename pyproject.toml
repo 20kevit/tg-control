@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools==84.2.1", "wheel==0.48.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tg-control"
+version = "0.1.0"
+description = "Synthetic-only development of a personal Telegram gateway"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.162.0",
+  "uvicorn==0.54.0",
+  "sqlalchemy==2.1.8",
+  "psycopg[binary]==3.3.8",
+  "alembic==1.20.1",
+  "cryptography==50.0.2",
+  "httpx==0.28.1",
+  "mcp==2.3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.2.0", "pytest-asyncio==1.4.1.post1", "ruff==0.17.4", "pgserver==0.1.4", "PyYAML==6.0.3"]
+
+[project.scripts]
+tg-control = "tg_control.cli:main"
+tg-control-mcp = "tg_control.mcp_stdio:main"
+tg-control-backup = "tg_control.backup:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tg_control = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

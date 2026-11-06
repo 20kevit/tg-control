@@ -1,0 +1,5 @@
+# Optional local-only DB port for an operator-run host backup/restore. Never expose externally.
+services:
+  db:
+    ports:
+      - "127.0.0.1:55432:5432"
