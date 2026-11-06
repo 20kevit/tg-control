@@ -171,3 +171,87 @@ Acceptance tests must prove that AI tools run only on explicit invocation, recei
 ### Documentation and delivery updates
 
 Update the PRD/feature matrix, command catalog, architecture, media pipeline contract, threat model, compliance assessment, API/MCP tool descriptions, CLI help, Web Admin documentation, and test plan to reflect this addendum. Add traceability from each requirement to implementation and tests. Keep the implementation incremental; establish reusable interfaces now without expanding the initial feature scope unnecessarily.
+
+
+## Competitive gap review addendum — execution guidance (2026-11-06)
+
+This addendum translates the competitor review into engineering direction. It is subordinate to the product baseline, authorization invariants, approval gates, and mandatory compliance gate above. Competitor feature lists are research inputs, not approved product requirements.
+
+### Current repository reality
+
+The reviewed repository snapshot contains documentation only (README.md and docs/ARENA.md). Do not describe planned architecture as implemented. First establish a runnable, tested foundation and keep a traceable distinction between planned, scaffolded, implemented, and verified capabilities.
+
+### Engineering priorities
+
+#### Priority 0 — executable foundation
+
+- Establish a maintainable application layout, dependency management, configuration validation, database migrations, structured logging, and reproducible local Docker development.
+- Define versioned domain/API contracts before implementing multiple client interfaces. Specify request/response envelopes, normalized error codes, pagination/cursors, timeout/cancellation behavior, and compatibility policy.
+- Define client authentication and credential lifecycle: issuance, secure storage, rotation, revocation, and per-request identity resolution. Never return raw secrets after issuance.
+- Implement the account registry and isolated Telegram Adapter interface; prove TDLib binding/build/runtime feasibility with mocks or synthetic fixtures only.
+- Implement the Policy Engine as a deny-by-default server-side boundary. Add a permission/scope matrix and negative tests for Read, Write, Admin, exclusions, account isolation, and chat types.
+- Add automated unit/integration tests, lint/type checks, CI, and a synthetic-data smoke test. Document exact commands and results.
+
+#### Priority 1 — reliable read-only slice and event contracts
+
+- Deliver one end-to-end read-only path through the shared Gateway Core, initially backed by deterministic fixtures/mocks.
+- Define normalized event envelopes with stable IDs, account identity, timestamps, schema version, deduplication behavior, and explicit ordering guarantees (or explicitly state when ordering is not guaranteed).
+- Specify subscription filters, consumer acknowledgements, retry/backoff, replay/resume cursors, poison-event handling, and dead-letter behavior before exposing event delivery.
+- Specify stable MCP tool schemas and CLI commands over the same Core contracts. Add HTTP/OpenAPI only as part of the agreed API surface; do not create a second business-logic path.
+- Test authorization before data retrieval, not only before formatting a response.
+
+#### Priority 2 — durable jobs and media lifecycle
+
+- Define durable job states and transitions, persistence, timezone-aware schedules, misfire behavior, pause/resume/cancel, concurrency limits, retry/backoff, execution history, and restart recovery.
+- Re-check client/account/chat authorization when a delayed job executes. Define idempotency and duplicate-send handling for operations whose outcome is uncertain.
+- Define media transfer contracts: streaming/chunking, resumability, size and quota limits, MIME/content validation, checksums, duplicate handling, temporary-file cleanup, retention, and storage adapters.
+- Keep optional media processing (such as transcription or OCR) separate from basic transfer and behind explicit task invocation and the existing compliance gate.
+
+#### Priority 3 — controlled writes and operator experience
+
+- Implement Write operations only through Gateway Core and Policy Engine, with batch pre-authorization, per-item results, rate-limit handling, and failure/retry tests.
+- Add operational health/readiness checks, correlation IDs, metrics, tracing where justified, queue and job visibility, graceful shutdown, and actionable diagnostics.
+- Document backup/restore and migration/rollback procedures; exercise recovery in a disposable test environment.
+- Build Web Admin against the same Core/API. Protect browser sessions and state-changing requests; validate Origin/CSRF protections and never expose TDLib session material.
+
+#### Priority 4 — extensibility after stable core
+
+- Specify a versioned first-party plugin contract: manifest, compatibility, registration points, permissions/capabilities, lifecycle, health, configuration, and audit.
+- Plugins must use approved Core interfaces and must never bypass Policy Engine, account isolation, audit, or compliance gates.
+- Start with trusted first-party modules. Do not load arbitrary third-party code in-process until a separate isolation and threat-model review is complete.
+- Add only owner-selected, narrow automation modules after the core is reliable. Do not expand scope merely to match competitor feature counts.
+
+### Required engineering artifacts
+
+Maintain these as concise, version-controlled documents and keep them aligned with implementation:
+
+- docs/PRD.md and a feature/status matrix (planned / scaffolded / implemented / verified).
+- docs/ARCHITECTURE.md and ADRs for consequential technical choices.
+- docs/API.md or an OpenAPI specification plus MCP tool schemas.
+- docs/SECURITY.md with threat model, trust boundaries, and security controls.
+- docs/POLICY.md with permission/scope truth table and default-deny semantics.
+- docs/EVENTS.md, docs/JOBS.md, and docs/MEDIA.md for their durable contracts.
+- docs/OPERATIONS.md for configuration, health, backup/restore, migrations, and recovery.
+- A test strategy and requirement-to-test traceability matrix.
+
+Do not create empty documents just to satisfy this list. Create each artifact when its content is sufficiently defined and link it from the project documentation.
+
+### Stage exit evidence
+
+At every stage boundary, provide a compact evidence report containing:
+
+1. Requirements delivered and their status (planned/scaffolded/implemented/verified).
+2. Changed files and commit references.
+3. Exact test, lint, type-check, build, and smoke-test commands with pass/fail results.
+4. Authorization/security negative-test coverage and unresolved findings.
+5. Operational limitations and known failure modes.
+6. Any approval gate reached and the exact decision required from the owner.
+
+A plan, interface stub, mock-only demonstration, or passing unit test must not be presented as a complete end-to-end integration. Label mock/synthetic coverage explicitly. Continue autonomously through reversible engineering work; stop only at the existing owner-approval gates.
+
+### Explicit non-goals for this review
+
+- Do not add broad background AI analysis, automatic interpretation of incoming messages, or autonomous message-triggered actions.
+- Do not infer owner approval for new user-facing features from competitor examples.
+- Do not weaken or bypass the Telegram AI-data compliance gate.
+- Do not perform real Telegram login, live-data ingestion, live AI processing, production deployment, or external infrastructure changes without the approvals already required above.
