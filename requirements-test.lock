@@ -1,0 +1,9 @@
+# Tested Linux/Python 3.11 dependency constraints, 2026-11-06.
+# Install with: pip install -c requirements-test.lock '.[test]'
+psycopg==3.3.8
+psycopg-binary==3.3.8
+pgserver==0.1.4
+fasteners==0.20
+platformdirs==4.14.5
+psutil==7.2.2
+typing-extensions==4.16.0

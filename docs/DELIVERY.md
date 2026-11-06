@@ -1,69 +1,76 @@
-# Delivery checkpoint — 2026-11-06
+# Delivery checkpoint — PostgreSQL metadata milestone, 2026-11-06
 
-## Identity and scope
-Base f9b3fa6776a1951430b55603266d68d42e2b18b8. Branch
-arena/9088bfcd-tg-control (environment constraint; owner requested continuation).
-Final commit: use `git rev-parse HEAD`; this report is itself committed.
-Independent implementation; no merges, cherry-picks or other-agent inspection.
-**Partial foundation, not full execution-contract completion.**
+## Identity
+Base: f9b3fa6776a1951430b55603266d68d42e2b18b8.
+Branch: arena/9088bfcd-tg-control (fixed session branch; documented deviation from
+arena-agent-2). Final SHA: `git rev-parse HEAD` after this report's commit.
+No other agent work inspected/copied; no merge. **Product remains incomplete.**
 
-## Implemented
-- Synthetic adapter with independent account dictionaries; no network or real login.
-- Read/search, Write send, explicit reply-aware save, opaque media preservation.
-- Independent permission grants; public-type scopes; explicit exclusions; private
-  defaults; client/account checks; batch preflight and per-item outcomes.
-- Bounded rate-limit waits, normalized expected errors, content-free audit records
-  and 90-day default pruning primitive.
-- Memory-only salted scrypt credential issuance, rotation, revocation.
-- Bounded explicit synthetic AI task contract, no provider or live content path.
-- CLI fixture demo, draft PostgreSQL schema, unverified Docker packaging.
-- Consolidated PRD/architecture/security/compliance/development/traceability docs.
+## Implemented at this milestone
+- PostgreSQL account/client metadata, independent scoped/excluded policy storage,
+  credential lifecycle and sanitized metadata views, settings and durable audit.
+- Explicit additive migration, transaction/checksum tracking, advisory lock and
+  packaged SQL resource. No automatic connection-time schema modification.
+- Salted scrypt digests only; revocation/rotation across connections; disabled
+  clients blocked; concurrent rotation has one winner with consistent lock order.
+- Gateway integration with stored policy and durable audit intent before effects.
+  Audit intent failure blocks effects; final persistence failure returns an
+  explicit unknown-outcome error. No automatic uncertain-write retries.
+- Bounded request fields/media, finite/bounded rate-limit values, normalized
+  adapter failures without exception payload leakage.
+- Dependency constraints, test workflow, packaged schema and ADR 002.
 
-## Evidence actually executed
-- `python -m unittest discover -s tests -v`: 19 passed.
-- `python -m compileall -q tg_control tests`: passed.
-- `python -m tg_control.cli --help` and `... demo`: passed.
-- System pip editable install: rejected by PEP 668; not overridden.
-- `python -m venv .venv && .venv/bin/pip install -e .`: passed.
-- `.venv/bin/tg-control demo`: passed, synthetic output only.
-- `.venv/bin/python -m unittest discover -s tests -q`: 19 passed.
-- `git diff --check`: passed before implementation commit.
-- Docker executable absent; Docker build NOT executed.
-- PostgreSQL schema NOT applied or integration-tested.
-- No native TDLib binding or remote terms fetch executed.
+Previous features retained: synthetic multi-account adapter, read/search/send,
+reply-aware `/save`, batch preflight/per-item results, explicit bounded synthetic
+AI task contract and fixture CLI. No live data or provider integration is enabled.
 
-## Review findings / limitations
-No live data, provider calls, session material or committed raw credentials.
-Core is a trusted in-process test harness: client strings are not an external
-authentication boundary. Do NOT expose this harness as a service. Credential
-primitive is not wired to interfaces and lacks brute-force protection; production
-store/lifecycle, service authorization and request-size limits remain required.
-Memory audit is not durable. Adapter/provenance guards are development safeguards,
-not a secure sandbox against Python code with in-process mutation privileges.
-Retries apply only to explicit rate-limit exceptions; uncertain-send retries,
-idempotency, disconnect/re-auth handling remain unimplemented. Unsupported adapter
-exceptions are not yet normalized. Fixture media uses unbounded memory; not safe
-for real media. No production readiness or comprehensive security approval claimed.
+## Tests/checks actually executed
+- `.venv/bin/pip install -e '.[test]'`: passed.
+- `.venv/bin/python -m unittest discover -s tests -v`: **35 passed**, no skips.
+  Includes 11 real-PostgreSQL integration tests in a disposable temporary cluster:
+  migrations/checksum, reconnect persistence, credentials/revocation, client disable,
+  saved-message policy/audit, parameter binding/rollback, retention/settings, outage,
+  policy validation, simultaneous rotation, Unix-only listener and safe views
+  (some tests exercise multiple categories).
+- `.venv/bin/pip check`: passed, no broken requirements.
+- `.venv/bin/pip wheel --no-deps --wheel-dir /tmp/tg-control-wheel .`: passed.
+- Wheel SQL-resource inspection, compile check, CLI demo, constrained install and
+  final diff check are recorded in the milestone command output.
+- Earlier checkpoint: 19 tests and fixture CLI passed; system pip rejected by PEP
+  668, resolved using a venv without overriding system protections.
+- Docker not installed; no container build performed. GitHub workflow added but
+  hosted CI run not yet verified. pip check is NOT a vulnerability audit.
 
-## Remaining work / stage status
-0 documentation baseline exists, but detailed per-requirement matrix remains.
-1 blocked for verified official research by network allowlist, legal approval open.
-2 synthetic isolation only; native build/runtime proof still required.
-3 memory foundation only; PostgreSQL repository/migrations integration outstanding.
-4/5 synthetic slices tested; edit/delete/forward/Admin Telegram operations missing.
-6 CLI demo only; full CLI, authenticated API, MCP and Web Admin/management missing.
-7 container recipe only; dependency/security review, CI, recovery rehearsal missing.
-These are engineering gaps, not silently waived acceptance criteria. Safe next work
-is PostgreSQL persistence plus authenticated local API/interfaces and expanded tests.
-Compliance blocks live work only; it does not block those synthetic tasks.
+## Architecture and security review
+See ADR 002. PostgreSQL-only persistent path; no Redis, SQLite or live Telegram.
+All SQL values are bound parameters; no raw message bodies or credentials in audit.
+Only non-secret credential IDs returned by metadata views. Database errors are
+normalized without exposing DSNs. Explicit statement/connect/lock timeouts.
+Tests start a fresh bundled PostgreSQL over Unix sockets, verify no IP listener,
+and delete only that disposable fixture database. No owner infrastructure used.
 
-## Trade-offs
-Zero runtime dependencies make the fixture core easy to inspect; deliberately not a
-replacement for a production HTTP/MCP implementation. No Redis without evidence.
-Private-source Read is required in addition to self-destination Write for save to
-prevent an export permission bypass. No AI catalog is asserted as owner-approved.
+Remaining security boundaries: repository management methods are trusted local
+owner primitives, not remote APIs. A client string is not authentication. No
+service should expose the Gateway directly without a per-request identity layer.
+Database roles/TLS/protected backups still need operational review. No production
+readiness or comprehensive vulnerability/security approval is claimed.
+Revocation cannot recall an already executing operation. Accepted audit without
+completion means uncertain outcome; there is no distributed transaction with
+Telegram. Settings for cache/media retention are stored but not yet implemented
+by a real media pipeline. Fixture media is in-memory and size-limited, not streamed.
 
-## Approval gates
-Owner legal decision required before any live login/content use; separate explicit
-approval required for deployment/exposure. Recommend keeping both closed. Official
-terms must be reviewed from an allowed environment, not assumed unchanged.
+## Remaining stage work
+0: detailed requirement matrix and expanded documents still needed.
+1: current official terms research blocked by outbound host allowlist; compliance
+   gate remains CLOSED pending qualified owner decision.
+2: native TDLib JSON binding/build/runtime isolation and session-state proof missing.
+3: metadata persistence now tested; production service configuration, account state
+   paths and owner bootstrap/lifecycle integration still needed.
+4/5: tested synthetic slices; edit/delete/forward/Admin operations missing.
+6: authenticated API, full CLI, MCP, Web Admin and management boundaries missing.
+7: Docker build, vulnerability audit, backup/restore rehearsal and hosted CI review.
+
+Next safe milestone: authenticated local API shared by CLI/MCP/Web Admin, using
+stored credentials/policy/audit. Native adapter can be built/tested without login.
+No legal approval is needed for further synthetic engineering. Live login/content,
+production exposure, owner migrations and deployment still require their gates.

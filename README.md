@@ -51,9 +51,14 @@ The owner reviews stage evidence, security boundaries, compliance decisions, and
 
 ```sh
 python -m venv .venv
-.venv/bin/pip install -e .
+.venv/bin/pip install -c requirements-test.lock -e '.[test]'
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/tg-control demo
 ```
 
 No Telegram account or API credentials are needed or accepted by the demo.
+
+PostgreSQL integration tests launch and clean up a fresh disposable local cluster
+with no TCP listener; they never target an owner database. Metadata persistence,
+policy and credential lifecycle are in `tg_control/storage.py`; see
+[ADR 002](docs/adr/002-postgresql-metadata.md). No authenticated service is exposed yet.

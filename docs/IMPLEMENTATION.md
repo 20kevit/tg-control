@@ -17,8 +17,8 @@ Interfaces -> Gateway -> policy -> account adapter. A batch is fully authorized
 before any adapter side effect; outcomes are independent, not transactional.
 Each grant keys client, account and permission; public chat types can be broad
 grants, private chats require explicit IDs. Exclusions win. Account identity and
-chat classification come from the adapter, not caller claims. Production metadata
-must use PostgreSQL; memory stores are exclusively a synthetic test harness.
+chat classification come from the adapter, not caller claims. Metadata, policies, credential digests, settings and durable audit now have a
+PostgreSQL repository (storage.py); memory stores remain synthetic unit fixtures.
 Credentials store salted one-way digests, independently revocable. Audit records
 contain identifiers and outcomes, never message bodies or credential material.
 
@@ -60,7 +60,8 @@ Python standard library synthetic adapter first; no binding selected without a
 native-runtime proof. TDLib JSON interface is the proposed future native boundary.
 One native client, database and files directory per account. Mock isolation is not
 native runtime validation. Native build/runtime feasibility remains unverified.
-No Redis: no measured need. PostgreSQL schema is a draft, not a deployed migration.
+No Redis: no measured need. PostgreSQL schema is packaged, checksummed and tested on a disposable local cluster;
+no owner database has been migrated. See ADR 002.
 
 ## Roadmap and measurable gates
 0: baseline docs and contract. 1: verified official terms and native feasibility.
@@ -71,7 +72,9 @@ and management. 7: dependency/security checks, Docker and recovery rehearsal.
 Synthetic foundations do not constitute completion of these production gates.
 
 ## Development / testing / operations
-Run `python -m unittest discover -s tests -v`. Never supply real session material.
+Install `.[test]` with requirements-test.lock constraints, then run
+`python -m unittest discover -s tests -v`. PostgreSQL tests create only their own
+temporary Unix-socket cluster; they never accept an external database URL. Never supply real session material.
 Tests must cover permission independence, exclusions, private defaults, account
 isolation, batch preflight, rate-limit timeout and save failure paths.
 Before production: dependency audit, PostgreSQL integration, backup/restore with
@@ -90,5 +93,13 @@ no utility catalog or provider is currently enabled.
 
 ## Traceability
 Core/policy: tests/test_core.py. Reply/save/media: same test suite. Credential
-lifecycle: tests/test_security.py. PostgreSQL baseline: migrations/001_initial.sql.
+lifecycle: tests/test_security.py. PostgreSQL baseline: tg_control/migrations/001_initial.sql and tests/test_storage.py.
 Unimplemented acceptance requirements are recorded in DELIVERY.md, not waived.
+
+## Persistent metadata milestone
+
+See [ADR 002](adr/002-postgresql-metadata.md) for transaction, credential locking,
+audit failure and migration semantics. Management views exclude hashes/salts as
+well as raw tokens. Durable audit intent is committed before adapter execution.
+`audit_outcome_unknown` is deliberately not retryable. Database role provisioning,
+TLS, authenticated service interfaces and backup/restore validation are not done.
