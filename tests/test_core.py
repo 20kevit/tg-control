@@ -119,3 +119,39 @@ class CoreTests(unittest.TestCase):
         self.gateway.audit = [{'time': 0}]
         self.gateway.prune_audit()
         self.assertEqual(self.gateway.audit, [])
+
+    def test_invalid_requests(self):
+        for req in (None, Request('', 'read', 'c', '1'), Request('a', 'read', 'c'),
+                    Request('a', 'search', 'c', query='x' * 4097)):
+            with self.assertRaisesRegex(GatewayError, 'invalid_request'):
+                self.gateway.execute('u', req)
+        self.assertEqual(self.adapter.sent, [])
+
+    def test_adapter_error_normalized_without_secret(self):
+        def fail(*args):
+            raise OSError('secret exception payload')
+        self.adapter.send = fail
+        self.error('adapter_failure', Request('a', 'save', 'c', '2'))
+        self.assertNotIn('secret', repr(self.gateway.audit))
+
+    def test_nonfinite_rate_limit(self):
+        for wait in (float('nan'), float('inf'), -1, 'invalid'):
+            self.adapter.send = lambda *args: (_ for _ in ()).throw(RateLimited(wait))
+            self.error('rate_limit_timeout', Request('a', 'save', 'c', '2'))
+
+    def test_audit_intent_failure_blocks_effect(self):
+        class FailedAudit:
+            def append(self, event):
+                raise GatewayError('storage_unavailable')
+        self.gateway.audit_sink = FailedAudit()
+        self.error('storage_unavailable', Request('a', 'save', 'c', '2'))
+        self.assertEqual(self.adapter.sent, [])
+
+    def test_audit_completion_failure_marks_unknown(self):
+        class FailingCompletion:
+            def append(self, event):
+                if event['outcome'] == 'ok':
+                    raise GatewayError('storage_unavailable')
+        self.gateway.audit_sink = FailingCompletion()
+        self.error('audit_outcome_unknown', Request('a', 'save', 'c', '2'))
+        self.assertEqual(len(self.adapter.sent), 1)

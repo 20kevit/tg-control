@@ -1,6 +1,7 @@
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Protocol
 import time
+import math
 
 
 class GatewayError(Exception):
@@ -108,7 +109,7 @@ class Request:
 class Gateway:
     permissions = {'read': 'read', 'search': 'read', 'send': 'write', 'save': 'read'}
 
-    def __init__(self, accounts, policy, sleep=time.sleep, retry_budget=2):
+    def __init__(self, accounts, policy, sleep=time.sleep, retry_budget=2, audit_sink=None):
         # Production adapters cannot be injected into this compliance-closed build.
         if any(type(a) is not SyntheticAdapter for a in accounts.values()):
             raise GatewayError('compliance_closed')
@@ -117,8 +118,32 @@ class Gateway:
         self.audit = []
         self.sleep = sleep
         self.retry_budget = retry_budget
+        self.audit_sink = audit_sink
+
+    @staticmethod
+    def validate(client, req):
+        if not isinstance(req, Request):
+            raise GatewayError('invalid_request')
+        for value in (client, req.account, req.operation, req.chat):
+            if not isinstance(value, str) or not 1 <= len(value) <= 128 or any(ord(c) < 32 for c in value):
+                raise GatewayError('invalid_request')
+        if not isinstance(req.message, str) or len(req.message) > 128:
+            raise GatewayError('invalid_request')
+        if not isinstance(req.query, str) or len(req.query) > 4096:
+            raise GatewayError('invalid_request')
+        if req.operation in {'read', 'save'} and not req.message:
+            raise GatewayError('invalid_request')
+        if req.content is not None:
+            if not isinstance(req.content, Message):
+                raise GatewayError('invalid_request')
+            for value in (req.content.id, req.content.text, req.content.caption, req.content.filename, req.content.kind):
+                if not isinstance(value, str) or len(value) > 65536:
+                    raise GatewayError('invalid_request')
+            if req.content.media is not None and (not isinstance(req.content.media, bytes) or len(req.content.media) > 10485760):
+                raise GatewayError('media_too_large')
 
     def authorize(self, client, req):
+        self.validate(client, req)
         adapter = self.accounts.get(req.account)
         if adapter is None or req.operation not in self.permissions:
             raise GatewayError('invalid_request')
@@ -149,30 +174,55 @@ class Gateway:
             raise GatewayError('unsupported_content')
         if source.kind != 'text':
             source = replace(source, media=adapter.download(source))
+        if source.media is not None and len(source.media) > 10485760:
+            raise GatewayError('media_too_large')
         return adapter.send('self', replace(source, reply_to=None))
 
     def _record(self, client, req, outcome):
-        self.audit.append({'client': client, 'account': req.account, 'chat': req.chat,
-                           'operation': req.operation, 'outcome': outcome, 'time': time.time()})
+        event = {'client': client, 'account': req.account, 'chat': req.chat,
+                 'operation': req.operation, 'outcome': outcome, 'time': time.time()}
+        if self.audit_sink is not None:
+            self.audit_sink.append(event)
+        self.audit.append(event)
 
     def execute(self, client, req):
+        self.validate(client, req)
         try:
             adapter = self.authorize(client, req)
+        except GatewayError as error:
+            self._record(client, req, error.code)
+            raise
+        if self.audit_sink is not None:
+            # Commit intent before touching adapter; audit outage fails closed.
+            self.audit_sink.append({'client': client, 'account': req.account, 'chat': req.chat,
+                                    'operation': req.operation, 'outcome': 'accepted'})
+        try:
             spent = 0
             for attempt in range(3):
                 try:
                     result = self._run(adapter, req)
                     break
                 except RateLimited as error:
-                    if error.seconds < 0 or spent + error.seconds > self.retry_budget or attempt == 2:
+                    wait = error.seconds
+                    if (not isinstance(wait, (int, float)) or not math.isfinite(wait)
+                            or wait < 0 or spent + wait > self.retry_budget or attempt == 2):
                         raise GatewayError('rate_limit_timeout') from None
-                    spent += error.seconds
-                    self.sleep(error.seconds)
-            self._record(client, req, 'ok')
-            return result
+                    spent += wait
+                    self.sleep(wait)
+                except GatewayError:
+                    raise
+                except Exception:
+                    # Never leak adapter exception text or retry uncertain writes.
+                    raise GatewayError('adapter_failure') from None
         except GatewayError as error:
             self._record(client, req, error.code)
             raise
+        try:
+            self._record(client, req, 'ok')
+        except GatewayError:
+            # Effect may have completed. Do not invite a duplicate-write retry.
+            raise GatewayError('audit_outcome_unknown') from None
+        return result
 
     def batch(self, client, requests):
         requests = list(requests)
@@ -183,6 +233,10 @@ class Gateway:
                 self.authorize(client, req)
         except GatewayError:
             for req in requests:
+                try:
+                    self.validate(client, req)
+                except GatewayError:
+                    continue
                 self._record(client, req, 'batch_preflight_denied')
             raise
         results = []
