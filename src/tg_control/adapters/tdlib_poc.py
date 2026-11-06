@@ -34,32 +34,44 @@ class OfflineTdJsonRouter:
         self.states: dict[str, str] = {}
 
     def register(self, client_id: int, account_id: str) -> None:
-        UUID(account_id)
+        if type(client_id) is not int or not 0 < client_id < 2**31:
+            raise ValueError("client ID must be a positive int32 value")
+        if str(UUID(account_id)) != account_id:
+            raise ValueError("account ID must be a canonical UUID")
         if client_id in self.clients or account_id in self.clients.values():
             raise ValueError("client or account already registered")
         self.clients[client_id] = account_id
         self.states[account_id] = "initializing"
 
     def request(self, client_id: int, method: str) -> dict[str, str]:
-        if client_id not in self.clients:
+        if type(client_id) is not int or client_id not in self.clients:
             raise ValueError("unknown client")
         request_id = uuid4().hex
         self.pending[(client_id, request_id)] = method
         return {"@type": method, "@extra": request_id}
 
     def receive(self, client_id: int, result: dict) -> tuple[str, str] | None:
-        account_id = self.clients.get(client_id)
+        account_id = self.clients.get(client_id) if type(client_id) is int else None
         if account_id is None:
             raise ValueError("unknown client")
         if result.get("@type") == "updateAuthorizationState":
-            state = result.get("authorization_state", {}).get("@type")
-            self.states[account_id] = {
-                "authorizationStateReady": "ready",
-                "authorizationStateClosed": "disconnected",
-                "authorizationStateWaitCode": "reauth_required",
-                "authorizationStateWaitPassword": "reauth_required",
-                "authorizationStateWaitPhoneNumber": "reauth_required",
-            }.get(state, "initializing")
+            authorization = result.get("authorization_state")
+            state = authorization.get("@type") if isinstance(authorization, dict) else None
+            if state == "authorizationStateReady":
+                status = "ready"
+            elif state == "authorizationStateWaitTdlibParameters":
+                status = "initializing"
+            elif state in (
+                "authorizationStateLoggingOut",
+                "authorizationStateClosing",
+                "authorizationStateClosed",
+            ):
+                status = "disconnected"
+            else:
+                # All other or unrecognized states require owner attention. No
+                # login link, code, password hint, email, or payment is handled.
+                status = "reauth_required"
+            self.states[account_id] = status
             return None
         extra = result.get("@extra")
         if not isinstance(extra, str):

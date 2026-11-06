@@ -4,7 +4,7 @@ Status is evidence-based, not a promise of completion. Stages may overlap only w
 
 - [x] **0 Baseline**: read all existing files/history; maintain PRD, architecture, security, data model, API, ADRs, development/testing guides, roadmap and status; establish a reproducible synthetic-only test command.
 - [x] **1 Compliance research & feasibility**: reviewed official terms and TDLib excerpts, documented risks, owner decision and method limitations; synthetic isolation tests and an offline native ABI probe passed. This completes the research stage, **not** the unresolved legal/owner gate.
-- [x] **2 TDLib proof of concept (offline only)**: defined the replaceable interface and tested synthetic isolation, lifecycle/errors and correlation; built and probed two native client IDs without parameters or networking.
+- [x] **2 TDLib proof of concept (offline only)**: defined the replaceable interface and tested synthetic isolation, lifecycle/errors and correlation; built and probed two native client IDs without parameters or networking; added unwired, fail-closed schema models for visibility, text flags and send outcomes.
 - [ ] **Native adapter / live behavior**: a real TDLib adapter, authorization, sync, protected-content handling and live end-to-end tests are not implemented. No real account/data until the separate compliance and owner gates are resolved.
 - [x] **3 Foundation (synthetic)**: PostgreSQL models and migrations, authenticated clients, rotation/revocation, account-scoped independent permissions, exclusions, fail-closed audit and input validation, covered by negative tests.
 - [x] **4 Read (synthetic)**: permitted discovery, history, cross-account search/message/media reads; private default deny, result filtering, exclusion and isolation tests.

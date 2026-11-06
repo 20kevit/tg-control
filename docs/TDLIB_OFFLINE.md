@@ -10,6 +10,16 @@ On 2026-11-06, the official `tdlib/td` source at commit `4c6377aa7386c39217878a9
 
 Seccomp here blocks network syscalls, not filesystem/process access or malicious native code. Run only a trusted library in an isolated environment with no real credentials. This was not a live Telegram, performance, content-protection, reauthentication or adapter test.
 
+## Synthetic schema models (not an adapter)
+
+Pure, unwired Python models use only synthetic dictionaries shaped after the pinned upstream [`td_api.tl`](https://github.com/tdlib/td/blob/4c6377aa7386c39217878a9a56d581922ad37ca4/td/generate/scheme/td_api.tl). They cannot load TDLib or make network calls:
+
+- `tdlib_poc.py` treats all unrecognized authorization states and all code, email, other-device, registration, password and premium-purchase states as owner-intervention states; it does not handle login links, authentication details or payments.
+- `tdlib_outcomes.py` distinguishes acknowledgments from terminal send updates and correlates client, chat and temporary message ID. Success is not proof of recipient delivery; scheduling is flagged. An irrecoverable deletion or malformed success remains unknown. A failed send is marked only *eligible* for future retry when TDLib explicitly reports `can_retry`, a valid finite `retry_after`, no change of sender/quote/reply and no additional Stars. It does not retry, wait, buffer early updates, persist outcomes, or reauthorize: a future adapter must implement these controls, use `resendMessages` when appropriate, and never blindly repeat an unknown mutation.
+- `tdlib_read_model.py` conservatively classifies synthetic chat metadata, including location-based public groups, while rejecting missing/mismatched visibility metadata, secret chats and channel-direct-message groups. Its text-only structural screen rejects protected, expiring, restricted, unsaved, scheduled or ephemeral messages and unsupported media. It does not return content. A passing screen is **not** legal clearance or a policy grant, and does not implement actual protected-content handling or native cache invalidation. A future adapter must get fresh trusted metadata, authorize every action and recheck at delivery.
+
+These models intentionally fail closed on malformed and unknown data. They are design aids, not evidence that real Telegram messages may be ingested, cached, forwarded, searched or transmitted to AI clients. Native behavior, serialization edge cases, UI consent, privacy and security require independent implementation and testing after the gate is resolved.
+
 ## Reproduce the opt-in probe
 
 On a disposable Linux x86-64 machine with a trusted compiler, CMake, gperf, OpenSSL and zlib development files, Python dev dependencies and `libseccomp.so.2`, obtain the pinned upstream source and build outside Git (illustrative commands; inspect downloaded source and dependencies first):
