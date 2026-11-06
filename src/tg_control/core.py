@@ -13,7 +13,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from . import audit
-from .adapters.base import AdapterError, Chat, RateLimited, SessionUnavailable, TelegramAdapter
+from .adapters.base import (
+    AdapterError,
+    Chat,
+    RateLimited,
+    SessionStatus,
+    SessionUnavailable,
+    TelegramAdapter,
+)
 from .auth import Principal, is_active
 from .cache import ReadCache
 from .db import Account, ExecutionKey, Grant
@@ -59,23 +66,38 @@ class Gateway:
         before_retry: Callable[[], Awaitable[None]] | None = None,
     ) -> Any:
         deadline = time.monotonic() + self.timeout_seconds
-        retries = 0
+        immediate_retries = 0
         reconnected = False
+
+        async def check_retry() -> None:
+            if before_retry is None:
+                return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AdapterError("timeout", outcome_unknown=False)
+            try:
+                await asyncio.wait_for(before_retry(), timeout=remaining)
+            except TimeoutError:
+                raise AdapterError("timeout", outcome_unknown=False) from None
+
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise AdapterError("timeout", outcome_unknown=mutation)
+                # No operation is currently in flight; prior retries were rejected.
+                raise AdapterError("timeout", outcome_unknown=False)
             try:
                 return await asyncio.wait_for(fn(), timeout=remaining)
             except RateLimited as exc:
-                retries += 1
+                immediate_retries = immediate_retries + 1 if exc.retry_after == 0 else 0
                 remaining = deadline - time.monotonic()
-                # Cap malformed zero-duration retries to avoid a tight loop.
-                if retries > 8 or exc.retry_after >= remaining:
+                # Only repeated zero-duration rejections are capped to avoid a tight loop.
+                if immediate_retries > 8 or exc.retry_after >= remaining:
                     raise RetryDeadline(exc.retry_after) from None
-                await self.sleep(exc.retry_after)
-                if before_retry:
-                    await before_retry()
+                try:
+                    await asyncio.wait_for(self.sleep(exc.retry_after), timeout=remaining)
+                except TimeoutError:
+                    raise RetryDeadline(exc.retry_after) from None
+                await check_retry()
             except SessionUnavailable as exc:
                 if exc.intervention_required or reconnected:
                     raise
@@ -87,8 +109,7 @@ class Gateway:
                     await asyncio.wait_for(self.adapter.reconnect(account_id), timeout=remaining)
                 except TimeoutError:
                     raise AdapterError("reconnect_timeout") from None
-                if before_retry:
-                    await before_retry()
+                await check_retry()
             except TimeoutError:
                 # A timeout while a mutation is in flight may have already caused an effect.
                 raise AdapterError("timeout", outcome_unknown=mutation) from None
@@ -573,12 +594,50 @@ class Gateway:
             )
             session.commit()
             try:
-                status = (
-                    await self.adapter.reconnect(account_id)
+                operation = (
+                    self.adapter.reconnect(account_id)
                     if reconnect
-                    else await self.adapter.status(account_id)
+                    else self.adapter.status(account_id)
                 )
+                status = await asyncio.wait_for(operation, timeout=self.timeout_seconds)
+                if (
+                    not isinstance(status, SessionStatus)
+                    or status.state
+                    not in {"ready", "disconnected", "reauth_required", "initializing"}
+                    or type(status.intervention_required) is not bool
+                    or (status.state == "ready" and status.intervention_required)
+                ):
+                    raise AdapterError("adapter_failure", outcome_unknown=reconnect)
+                if status.state == "reauth_required" and not status.intervention_required:
+                    status = SessionStatus("reauth_required", intervention_required=True)
             except SessionUnavailable as exc:
+                failure = {
+                    "state": exc.code,
+                    "intervention_required": exc.intervention_required,
+                    "outcome_unknown": False,
+                }
+            except TimeoutError:
+                failure = {
+                    "state": "reconnect_timeout" if reconnect else "timeout",
+                    "intervention_required": True,
+                    "outcome_unknown": reconnect,
+                }
+            except AdapterError as exc:
+                failure = {
+                    "state": exc.code,
+                    "intervention_required": True,
+                    "outcome_unknown": exc.outcome_unknown or reconnect,
+                }
+            except Exception:
+                # Do not expose upstream text, which may contain sensitive data.
+                failure = {
+                    "state": "adapter_failure",
+                    "intervention_required": True,
+                    "outcome_unknown": reconnect,
+                }
+            else:
+                failure = None
+            if failure is not None:
                 audit.record(
                     session,
                     request_id=request_id,
@@ -587,10 +646,10 @@ class Gateway:
                     event=event,
                     account_id=account_id,
                     decision="failure",
-                    error_code=exc.code,
+                    error_code=failure["state"],
                 )
                 session.commit()
-                return {"state": exc.code, "intervention_required": exc.intervention_required}
+                return failure
             audit.record(
                 session,
                 request_id=request_id,

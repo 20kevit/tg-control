@@ -196,6 +196,22 @@ def test_settings_session_health_and_owner_authority(api, settings):
         api.get(f"/v1/admin/accounts/{account['id']}/status", headers=owner).json()["state"]
         == "ready"
     )
+    adapter = api.app.state.gateway.adapter
+    adapter.set_state(account["id"], "reauth_required")
+    status = api.get(f"/v1/admin/accounts/{account['id']}/status", headers=owner).json()
+    assert status == {"state": "reauth_required", "intervention_required": True}
+    reconnect = api.post(f"/v1/admin/accounts/{account['id']}/reconnect", headers=owner).json()
+    assert reconnect == {
+        "state": "reauth_required",
+        "intervention_required": True,
+        "outcome_unknown": False,
+    }
+    assert (
+        api.get(
+            f"/v1/admin/accounts/{account['id']}/status", headers=auth(client["credential"])
+        ).status_code
+        == 401
+    )
     assert api.get("/v1/admin/settings", headers=owner).json()["audit_retention_days"] == 90
     new = {"audit_retention_days": 30, "cache_ttl_seconds": 60, "media_retention_days": None}
     assert api.put("/v1/admin/settings", headers=owner, json=new).json() == new

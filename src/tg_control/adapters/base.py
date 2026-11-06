@@ -61,6 +61,8 @@ class RateLimited(AdapterError):
 
 
 class SessionUnavailable(AdapterError):
+    """Only for operations definitely not applied; uncertain mutations must stay unknown."""
+
     def __init__(self, intervention_required: bool):
         super().__init__("reauth_required" if intervention_required else "disconnected")
         self.intervention_required = intervention_required

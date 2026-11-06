@@ -464,3 +464,168 @@ async def test_search_delivery_filters_chat_revoked_after_earlier_result(databas
     assert result["items"][0]["status"] == "success"
     assert [entry["chat_id"] for entry in result["items"][0]["data"]["chats"]] == ["public-group"]
     assert "public-channel" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_positive_rate_limits_are_retried_beyond_eight_when_deadline_allows(database):
+    account, _, _, principal = setup(database)
+    adapter = SyntheticAdapter()
+    waits = []
+
+    async def fake_sleep(seconds):
+        waits.append(seconds)
+
+    gateway = Gateway(database, adapter, timeout_seconds=2, sleep=fake_sleep)
+    for _ in range(12):
+        adapter.inject_fault(account, "send", RateLimited(0.01))
+    result = await gateway.execute(
+        principal,
+        batch(
+            action(account, "send", "public-channel", text="synthetic after waits"),
+            key=uuid.uuid4(),
+        ),
+    )
+    assert result["items"][0]["status"] == "success"
+    assert waits == [0.01] * 12
+    history = await adapter.execute(account, "history", "public-channel", {})
+    assert sum(item["text"] == "synthetic after waits" for item in history["messages"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_zero_delay_rate_limit_spin_guard_never_causes_effect(database):
+    account, _, _, principal = setup(database)
+    adapter = SyntheticAdapter()
+    waits = []
+
+    async def fake_sleep(seconds):
+        waits.append(seconds)
+
+    gateway = Gateway(database, adapter, timeout_seconds=2, sleep=fake_sleep)
+    for _ in range(9):
+        adapter.inject_fault(account, "send", RateLimited(0))
+    result = await gateway.execute(
+        principal,
+        batch(action(account, "send", "public-channel", text="must not send"), key=uuid.uuid4()),
+    )
+    item = result["items"][0]
+    assert item["error"] == "rate_limit_timeout" and item["retry_after"] == 0
+    assert item["outcome_unknown"] is False and waits == [0] * 8
+    history = await adapter.execute(account, "history", "public-channel", {})
+    assert all(message["text"] != "must not send" for message in history["messages"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stall", ["sleep", "reauthorize"])
+async def test_retry_wait_and_reauthorization_are_deadline_bounded_without_unknown_effect(
+    database, stall
+):
+    from tg_control.adapters.base import AdapterError
+
+    account, _, _, _ = setup(database)
+    calls = []
+
+    async def rejected():
+        calls.append("attempt")
+        raise RateLimited(0.001)
+
+    async def sleep(_seconds):
+        if stall == "sleep":
+            await asyncio.Event().wait()
+
+    async def guard():
+        if stall == "reauthorize":
+            await asyncio.Event().wait()
+
+    gateway = Gateway(database, SyntheticAdapter(), timeout_seconds=0.03, sleep=sleep)
+    with pytest.raises(AdapterError) as error:
+        await asyncio.wait_for(
+            gateway._call(account, rejected, mutation=True, before_retry=guard), timeout=1
+        )
+    assert error.value.code == ("rate_limit_timeout" if stall == "sleep" else "timeout")
+    assert error.value.outcome_unknown is False
+    assert calls == ["attempt"]
+
+
+@pytest.mark.asyncio
+async def test_owner_session_status_and_reconnect_are_bounded_and_audited(database):
+    account, _, _, _ = setup(database)
+
+    class HungAdapter(SyntheticAdapter):
+        reconnect_started = False
+
+        async def status(self, account_id):
+            await asyncio.Event().wait()
+
+        async def reconnect(self, account_id):
+            self.reconnect_started = True
+            await asyncio.Event().wait()
+
+    adapter = HungAdapter()
+    gateway = Gateway(database, adapter, timeout_seconds=0.03)
+    status = await asyncio.wait_for(gateway.owner_account_status(account), timeout=1)
+    assert status == {"state": "timeout", "intervention_required": True, "outcome_unknown": False}
+    reconnect = await asyncio.wait_for(
+        gateway.owner_account_status(account, reconnect=True), timeout=1
+    )
+    assert reconnect == {
+        "state": "reconnect_timeout",
+        "intervention_required": True,
+        "outcome_unknown": True,
+    }
+    assert adapter.reconnect_started
+    with database() as session:
+        failures = session.scalars(
+            select(AuditEvent).where(
+                AuditEvent.event.in_(["account_status", "account_reconnect"]),
+                AuditEvent.decision == "failure",
+            )
+        ).all()
+    assert {event.error_code for event in failures} == {"timeout", "reconnect_timeout"}
+
+
+@pytest.mark.asyncio
+async def test_owner_session_adapter_errors_are_sanitized_and_fail_closed(database):
+    from tg_control.adapters.base import SessionStatus
+
+    account, _, _, _ = setup(database)
+
+    class InvalidStatusAdapter(SyntheticAdapter):
+        async def status(self, account_id):
+            return SessionStatus("synthetic-private-upstream-text", False)
+
+        async def reconnect(self, account_id):
+            raise RuntimeError("synthetic-private-exception")
+
+    gateway = Gateway(database, InvalidStatusAdapter())
+    status = await gateway.owner_account_status(account)
+    reconnect = await gateway.owner_account_status(account, reconnect=True)
+    assert status == {
+        "state": "adapter_failure",
+        "intervention_required": True,
+        "outcome_unknown": False,
+    }
+    assert reconnect == {
+        "state": "adapter_failure",
+        "intervention_required": True,
+        "outcome_unknown": True,
+    }
+    with database() as session:
+        events = session.scalars(select(AuditEvent)).all()
+        assert all("synthetic-private" not in str(vars(event)) for event in events)
+
+
+@pytest.mark.asyncio
+async def test_reauthentication_state_always_requires_owner_intervention(database):
+    from tg_control.adapters.base import SessionStatus
+
+    account, _, _, _ = setup(database)
+
+    class InconsistentAdapter(SyntheticAdapter):
+        async def status(self, account_id):
+            return SessionStatus("reauth_required", intervention_required=False)
+
+    gateway = Gateway(database, InconsistentAdapter())
+    assert await gateway.owner_account_status(account) == {
+        "state": "reauth_required",
+        "intervention_required": True,
+    }
