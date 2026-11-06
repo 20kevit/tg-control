@@ -274,3 +274,46 @@ def test_health_fails_closed_if_audit_is_unavailable(api, settings, monkeypatch)
     assert response.status_code == 503
     assert response.json() == {"error": "audit_unavailable", "outcome_unknown": False}
     assert "synthetic-sensitive-exception" not in response.text
+
+
+def test_all_methods_enforce_streaming_body_and_framing_boundaries(api, settings):
+    owner = auth(settings.owner_token)
+    for method in ("GET", "OPTIONS"):
+        chunks = iter(
+            [
+                b"x" * (settings.max_request_bytes // 2 + 1),
+                b"x" * (settings.max_request_bytes // 2 + 1),
+            ]
+        )
+        response = api.request(method, "/health/live", headers=owner, content=chunks)
+        assert response.status_code == 413
+    assert api.request("GET", "/health/live", headers=owner, content=b"x").status_code == 200
+    response = api.request(
+        "GET", "/health/live", headers={**owner, "Content-Length": "3"}, content=b"x"
+    )
+    assert response.status_code == 400
+    response = api.request(
+        "POST",
+        "/v1/admin/clients",
+        headers={**owner, "Content-Length": "1", "Transfer-Encoding": "chunked"},
+        content=b"x",
+    )
+    assert response.status_code == 400
+    response = api.request(
+        "GET",
+        "/health/live",
+        headers=[
+            ("Authorization", owner["Authorization"]),
+            ("Transfer-Encoding", "chunked"),
+            ("Transfer-Encoding", "chunked"),
+        ],
+        content=iter([b"x"]),
+    )
+    assert response.status_code == 400
+    response = api.request("GET", "/health/live", headers={**owner, "Content-Length": "9" * 5000})
+    assert response.status_code == 400 and "9" * 50 not in response.text
+    events = api.get("/v1/admin/audit", headers=owner).json()["events"]
+    assert any(
+        event["event"] == "boundary_rejection" and event["error_code"] == "http_413"
+        for event in events
+    )

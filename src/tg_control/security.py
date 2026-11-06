@@ -18,7 +18,7 @@ class SecurityBoundary:
             await self.app(scope, receive, send)
             return
         headers = scope.get("headers", [])
-        for name in (b"host", b"origin", b"authorization", b"content-length"):
+        for name in (b"host", b"origin", b"authorization", b"content-length", b"transfer-encoding"):
             if sum(1 for key, _ in headers if key.lower() == name) > 1:
                 await self._error(send, 400, "invalid_headers")
                 return
@@ -33,47 +33,50 @@ class SecurityBoundary:
                 await self._error(send, 403, "origin_denied")
                 return
         lengths = [value for key, value in headers if key.lower() == b"content-length"]
+        transfers = [value for key, value in headers if key.lower() == b"transfer-encoding"]
+        if (lengths and transfers) or (transfers and transfers[0].strip().lower() != b"chunked"):
+            await self._error(send, 400, "invalid_headers")
+            return
+        length = None
         if lengths:
-            try:
-                length = int(lengths[0])
-                if length < 0:
-                    raise ValueError
-            except ValueError:
+            if len(lengths[0]) > 20 or not lengths[0].isdigit():
                 await self._error(send, 400, "invalid_headers")
                 return
+            length = int(lengths[0])
             if length > self.max_bytes:
                 await self._error(send, 413, "request_too_large")
                 return
-        if scope["method"] in {"POST", "PUT", "PATCH", "DELETE"}:
-            chunks = []
-            size = 0
-            while True:
-                message = await receive()
-                if message["type"] == "http.disconnect":
-                    return
-                if message["type"] != "http.request":
-                    continue
-                chunk = message.get("body", b"")
-                size += len(chunk)
-                if size > self.max_bytes:
-                    await self._error(send, 413, "request_too_large")
-                    return
-                chunks.append(chunk)
-                if not message.get("more_body", False):
-                    break
-            body = b"".join(chunks)
-            sent = False
+        # Limit streamed bodies for every HTTP method, including GET and OPTIONS.
+        chunks = []
+        size = 0
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            if message["type"] != "http.request":
+                continue
+            chunk = message.get("body", b"")
+            size += len(chunk)
+            if size > self.max_bytes:
+                await self._error(send, 413, "request_too_large")
+                return
+            chunks.append(chunk)
+            if not message.get("more_body", False):
+                break
+        if length is not None and size != length:
+            await self._error(send, 400, "invalid_headers")
+            return
+        body = b"".join(chunks)
+        sent = False
 
-            async def replay() -> Message:
-                nonlocal sent
-                if not sent:
-                    sent = True
-                    return {"type": "http.request", "body": body, "more_body": False}
-                return await receive()
+        async def replay() -> Message:
+            nonlocal sent
+            if not sent:
+                sent = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
 
-            inner_receive = replay
-        else:
-            inner_receive = receive
+        inner_receive = replay
         started = False
 
         async def secure_send(message: Message) -> None:
