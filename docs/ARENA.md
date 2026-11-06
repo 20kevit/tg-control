@@ -136,3 +136,38 @@ At each stage boundary, report delivered files/features, exact tests and results
 ## Reviewer responsibilities
 
 The owner/reviewer evaluates product correctness, architecture, security invariants, compliance, stage evidence, and approval-gated actions. The reviewer should challenge unsupported claims and request concrete evidence. Arena owns routine implementation, debugging, tests, and documentation updates.
+
+
+## Product clarification addendum — reply-to-save and bounded AI utilities (2026-11-06)
+
+This addendum refines the product baseline and is authoritative where it is more specific. Preserve all existing authorization and compliance invariants.
+
+### Reply-aware `/save` command
+
+Implement an owner-invoked `/save` command that acts on the message to which the command message replies:
+
+- Resolve the replied-to message in the explicitly selected Telegram account.
+- For ordinary content that is legitimately retrievable and retainable, copy text and relevant metadata, and download/re-upload available media to that same account's Saved Messages (chat with self). Preserve captions and filenames where supported.
+- Support ordinary Telegram media/content types exposed by the adapter. Return a clear result for missing reply, unsupported content, unavailable media, download/upload failure, permission denial, and rate limiting.
+- Route the command through the shared reply-aware Command Router, Gateway Core, Policy Engine, Media Pipeline, and audit path. No direct-TDLib shortcut or permission bypass.
+- Enforce the account/client authorization and Write permission for the destination operation.
+
+**Hard exclusion:** Do not implement any mechanism to defeat self-destruct timers, disappearing-message behavior, protected-content restrictions, or other Telegram controls. Such content must fail closed with a clear unsupported/restricted result; do not try alternate download, cache, screenshot, export, or re-upload paths to preserve it. The normal `/save` behavior applies only to content legitimately available for retention.
+
+Acceptance tests must cover text-only replies, ordinary photo/video/document/audio media, caption/filename preservation, missing reply, unsupported/protected content, unavailable media, failed download/upload, denied Write permission, rate limits, and strict per-account isolation. Include negative tests proving ephemeral/self-destructing content is never saved.
+
+### Narrow, explicit AI utilities
+
+The product is not intended to perform broad autonomous analysis of all Telegram conversations by default.
+
+- Implement a small set of purpose-built AI tools only. Each tool must have an explicit user/client invocation, a narrow purpose, defined input/output schema, bounded scope, and a documented permission check.
+- Do not add automatic semantic analysis of every incoming message, background conversation monitoring for AI, autonomous interpretation of message contents, or message-triggered AI actions.
+- Keep provider integrations behind provider-independent task adapters. The adapter layer may be implemented and tested with synthetic fixtures while the compliance gate remains closed.
+- Do not assume that a narrow utility or user initiation makes Telegram-derived data use compliant. Until the existing compliance gate is formally resolved, do not send real Telegram text, voice, images, or other media to any AI provider. Keep live-data AI execution disabled by default.
+- Do not invent an approved AI utility catalog. Record candidate tools and ask for owner confirmation only where the exact user-facing behavior is genuinely unspecified; continue building generic adapter contracts and synthetic tests meanwhile.
+
+Acceptance tests must prove that AI tools run only on explicit invocation, receive only the authorized/specified input, cannot access unrelated chats or accounts, do not trigger from arbitrary message contents, and remain blocked from real Telegram-derived data until compliance approval is recorded.
+
+### Documentation and delivery updates
+
+Update the PRD/feature matrix, command catalog, architecture, media pipeline contract, threat model, compliance assessment, API/MCP tool descriptions, CLI help, Web Admin documentation, and test plan to reflect this addendum. Add traceability from each requirement to implementation and tests. Keep the implementation incremental; establish reusable interfaces now without expanding the initial feature scope unnecessarily.
