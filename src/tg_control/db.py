@@ -101,7 +101,10 @@ class AuditEvent(Base):
     chat_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     decision: Mapped[str] = mapped_column(String(32), nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    __table_args__ = (Index("ix_audit_timestamp_id", "timestamp", "id"),)
+    __table_args__ = (
+        Index("ix_audit_timestamp_id", "timestamp", "id"),
+        Index("ix_audit_event_id", "event", "id"),
+    )
 
 
 def make_engine(database_url: str) -> Engine:

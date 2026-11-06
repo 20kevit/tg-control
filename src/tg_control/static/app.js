@@ -39,7 +39,7 @@ function lockWorkspace(reason = "") {
   state.token = ""; state.accounts = []; state.clients = []; state.sessions = {}; state.retention = null;
   clearInterval(sessionTimer); clearTimeout(idleTimer); sessionTimer = null; idleTimer = null;
   document.querySelectorAll("form").forEach((form) => form.reset());
-  for (const selector of ["#account-list", "#client-list", "#recent-audit", "#audit-list", "#policy-client", "#policy-account"]) $(selector).replaceChildren();
+  for (const selector of ["#account-list", "#client-list", "#recent-audit", "#session-events", "#audit-list", "#policy-client", "#policy-account"]) $(selector).replaceChildren();
   $("#stat-accounts").textContent = "0"; $("#stat-clients").textContent = "0";
   $("#policy-form").hidden = true; $("#issued-credential").value = ""; $("#credential-box").hidden = true;
   clearNotice(); $("#session-alert").hidden = true; $("#session-alert").textContent = ""; $("#app").hidden = true; $("#login").hidden = false; $("#login-error").textContent = reason; $("#owner-token").focus();
@@ -59,15 +59,15 @@ async function refreshAll() {
 async function refreshSessions() {
   const generation = sessionGeneration;
   const active = state.accounts.filter((account) => account.enabled);
-  let statuses;
-  try { statuses = await Promise.all(active.map((account) => request(`/v1/admin/accounts/${pathPart(account.id)}/status`))); }
+  let statuses, history;
+  try { [statuses, history] = await Promise.all([Promise.all(active.map((account) => request(`/v1/admin/accounts/${pathPart(account.id)}/status`))), request("/v1/admin/audit?event=session_transition&limit=5")]); }
   catch (error) {
-    if (generation === sessionGeneration && state.token) { $("#session-alert").textContent = "Unable to verify account session status. Check the gateway and try again."; $("#session-alert").hidden = false; }
+    if (generation === sessionGeneration && state.token) { $("#session-alert").textContent = "Unable to verify account session status or history. Check the gateway and try again."; $("#session-alert").hidden = false; }
     throw error;
   }
   if (generation !== sessionGeneration || !state.token) return;
   state.sessions = Object.fromEntries(active.map((account, index) => [account.id, statuses[index]]));
-  renderAccounts();
+  renderAccounts(); renderSessionEvents(history.events);
   const intervention = statuses.some((status) => status.intervention_required);
   const disconnected = statuses.some((status) => status.state !== "ready");
   $("#session-alert").textContent = intervention ? "A synthetic account session requires owner intervention. Review Accounts." : "A synthetic account session is disconnected. Review Accounts and reconnect if needed.";
@@ -139,5 +139,17 @@ function renderSettings(settings) { state.retention = settings; $("#audit-days")
 $("#media-permanent").addEventListener("change", () => { $("#media-days").disabled = $("#media-permanent").checked; });
 $("#retention-form").addEventListener("submit", async (event) => { event.preventDefault(); try { const media = $("#media-permanent").checked ? null : Number($("#media-days").value); if (media !== null && state.retention && (state.retention.media_retention_days === null || media < state.retention.media_retention_days) && !window.confirm("A shorter retention period may immediately delete expired synthetic media. Continue?")) return; const settings = await request("/v1/admin/settings", { method: "PUT", body: { audit_retention_days: Number($("#audit-days").value), cache_ttl_seconds: Number($("#cache-seconds").value), media_retention_days: media } }); renderSettings(settings); notice("Retention settings saved."); } catch (error) { report(error); } });
 $("#prune-audit").addEventListener("click", async () => { if (!window.confirm("Permanently delete audit records older than the configured retention period?")) return; try { const result = await request("/v1/admin/maintenance/prune-audit", { method: "POST" }); notice(`Pruned ${result.deleted} expired audit records.`); } catch (error) { report(error); } });
+function renderSessionEvents(events) {
+  const root = $("#session-events"); root.replaceChildren();
+  if (!events.length) { empty(root, "No synthetic session changes recorded yet."); return; }
+  const names = { ready: "Recovered", disconnected: "Disconnected", reauth_required: "Owner action required", initializing: "Initializing", intervention_required: "Owner action required", unavailable: "Status unavailable" };
+  for (const event of events) {
+    const account = state.accounts.find((item) => item.id === event.account_id);
+    const row = make("div", "audit-row session-event");
+    const label = names[event.decision] || "Unknown state";
+    row.append(make("span", "event-name", account ? account.alias : (event.account_id || "Unknown account")), make("span", "event-time", event.timestamp), make("span", "event-actor", "Synthetic session"), make("span", `badge${event.decision === "ready" ? "" : " off"}`, label));
+    root.append(row);
+  }
+}
 function renderAudit(events) { for (const selector of ["#recent-audit", "#audit-list"]) { const root = $(selector); root.replaceChildren(); const subset = selector === "#recent-audit" ? events.slice(0, 5) : events; if (!subset.length) { empty(root, "No activity recorded yet."); continue; } for (const event of subset) { const row = make("div", "audit-row"); const decision = event.decision || "unknown"; row.append(make("span", "event-name", event.event.replaceAll("_", " ")), make("span", "event-time", event.timestamp), make("span", "event-actor", event.actor_kind + (event.actor_id ? ` · ${event.actor_id}` : "")), make("span", `badge${["failure", "denied"].includes(decision) ? " off" : ""}`, decision.toUpperCase())); root.append(row); } } }
 $("#reload-audit").addEventListener("click", async () => { try { const result = await request("/v1/admin/audit"); renderAudit(result.events); notice("Audit trail refreshed."); } catch (error) { report(error); } });

@@ -10,6 +10,7 @@ import pgserver
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
+from tg_control.adapters.synthetic import SyntheticAdapter
 from tg_control.api import create_app
 from tg_control.config import Settings
 
@@ -36,7 +37,8 @@ def test_postgres_api_round_trip(tmp_path):
             allowed_hosts=("testserver",),
             allowed_origins=("http://testserver",),
         )
-        with TestClient(create_app(settings)) as api:
+        adapter = SyntheticAdapter()
+        with TestClient(create_app(settings, adapter)) as api:
             owner = {"Authorization": "Bearer " + settings.owner_token}
             account = api.post(
                 "/v1/admin/accounts",
@@ -72,5 +74,19 @@ def test_postgres_api_round_trip(tmp_path):
                 == 200
             )
             assert api.get("/v1/accounts", headers=headers).status_code == 401
+            adapter.set_state(account["id"], "reauth_required")
+            api.portal.call(api.app.state.gateway.maintain_sessions)
+            events = api.get("/v1/admin/audit?event=session_transition", headers=owner).json()[
+                "events"
+            ]
+            assert len(events) == 1 and events[0]["decision"] == "reauth_required"
+        restarted_adapter = SyntheticAdapter()
+        restarted_adapter.set_state(account["id"], "reauth_required")
+        with TestClient(create_app(settings, restarted_adapter)) as api:
+            api.portal.call(api.app.state.gateway.maintain_sessions)
+            events = api.get("/v1/admin/audit?event=session_transition", headers=owner).json()[
+                "events"
+            ]
+            assert len(events) == 1 and events[0]["account_id"] == account["id"]
     finally:
         server.cleanup()

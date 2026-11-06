@@ -6,6 +6,8 @@ The current intended development adapter is synthetic only. Account IDs are gate
 
 PostgreSQL stores metadata, credential digests, policy, settings, and audit. The simulator optionally persists encrypted, isolated synthetic source state; a bounded process-local read cache has configurable TTL and does not cache media bytes. Only one instance/worker is supported. A future TDLib adapter must be responsible for its own synchronization and state; gateway caching must never imply complete history. A bounded, explicit retry deadline applies only to failures known not to have been applied. An uncertain mutation must not be retried automatically. Batch authorization precedes all effects; successful earlier items are not rolled back if a later item fails.
 
+The synthetic-only session monitor runs as a background task through Gateway Core and calls only adapter status, never message reads or reconnect. It atomically stores normalized state snapshots and metadata-only transition audit events. The owner panel fetches current status and an owner-authenticated, event-filtered history; it is not an external notification system. Checks cannot run while the service is stopped, and cooperative timeouts cannot protect against an adapter that blocks the event loop or ignores cancellation.
+
 ## Trust boundaries
 
 1. HTTP/MCP inputs and Origin/Host are untrusted; bearer identity comes only from the server credential store.

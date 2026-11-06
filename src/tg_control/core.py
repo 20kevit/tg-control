@@ -23,9 +23,21 @@ from .adapters.base import (
 )
 from .auth import Principal, is_active
 from .cache import ReadCache
-from .db import Account, ExecutionKey, Grant
+from .db import Account, ExecutionKey, Grant, Setting
 from .policy import Permission, Scope, get_scope
 from .schemas import MUTATIONS, Action, Batch, Forward, ListChats, Search
+
+SESSION_MONITOR_KEY = "session_monitor_v1"
+SESSION_MONITOR_STATES = {
+    "ready",
+    "disconnected",
+    "reauth_required",
+    "initializing",
+    "intervention_required",
+    "unavailable",
+}
+# This limits concurrent adapter checks, not the number of accounts being monitored.
+SESSION_MONITOR_CONCURRENCY = 8
 
 
 class BatchRejected(Exception):
@@ -56,6 +68,7 @@ class Gateway:
         self.timeout_seconds = timeout_seconds
         self.sleep = sleep
         self._cache = ReadCache()
+        self._session_monitor_lock = asyncio.Lock()
 
     async def _call(
         self,
@@ -575,6 +588,106 @@ class Gateway:
                     )
                     session.commit()
 
+    @staticmethod
+    def _validated_session_status(status: Any) -> SessionStatus:
+        if (
+            not isinstance(status, SessionStatus)
+            or not isinstance(status.state, str)
+            or status.state not in {"ready", "disconnected", "reauth_required", "initializing"}
+            or type(status.intervention_required) is not bool
+            or (status.state == "ready" and status.intervention_required)
+        ):
+            raise AdapterError("adapter_failure")
+        if status.state == "reauth_required" and not status.intervention_required:
+            return SessionStatus("reauth_required", intervention_required=True)
+        return status
+
+    async def _observe_session(self, account_id: str) -> tuple[str, str, str | None]:
+        try:
+            status = await asyncio.wait_for(
+                self.adapter.status(account_id), timeout=self.timeout_seconds
+            )
+            status = self._validated_session_status(status)
+        except SessionUnavailable as exc:
+            state = "reauth_required" if exc.intervention_required else "disconnected"
+            return account_id, state, state
+        except TimeoutError:
+            return account_id, "unavailable", "timeout"
+        except AdapterError as exc:
+            # Reapply the adapter error allowlist even if an exception was mutated.
+            code = AdapterError(exc.code).code if type(exc.code) is str else "adapter_failure"
+            return account_id, "unavailable", code
+        except Exception:
+            # Never retain exception text, account content, or login details.
+            return account_id, "unavailable", "adapter_failure"
+        state = status.state
+        if status.intervention_required and state != "reauth_required":
+            state = "intervention_required"
+        return account_id, state, None
+
+    async def maintain_sessions(self) -> None:
+        """Poll synthetic sessions without effects and persist metadata-only transitions.
+
+        Checks are bounded per account and concurrency, with no account-count cap.
+        The setting and transition events commit together. Multiple workers remain
+        unsupported; the process lock prevents overlapping local maintenance runs.
+        """
+        async with self._session_monitor_lock:
+            with self.sessions() as session:
+                account_ids = session.scalars(
+                    select(Account.id).where(Account.enabled.is_(True)).order_by(Account.id)
+                ).all()
+            observed: dict[str, tuple[str, str | None]] = {}
+            for start in range(0, len(account_ids), SESSION_MONITOR_CONCURRENCY):
+                checks = await asyncio.gather(
+                    *(
+                        self._observe_session(account_id)
+                        for account_id in account_ids[start : start + SESSION_MONITOR_CONCURRENCY]
+                    )
+                )
+                observed.update({account_id: (state, error) for account_id, state, error in checks})
+            with self.sessions() as session:
+                # Accounts may have been disabled while status checks were in flight.
+                enabled = set(session.scalars(select(Account.id).where(Account.enabled.is_(True))))
+                observed = {key: value for key, value in observed.items() if key in enabled}
+                setting = session.get(Setting, SESSION_MONITOR_KEY)
+                if setting is None:
+                    previous: dict[str, str] = {}
+                else:
+                    value = setting.value
+                    if (
+                        not isinstance(value, dict)
+                        or set(value) != {"states"}
+                        or not isinstance(value["states"], dict)
+                        or any(
+                            not isinstance(key, str)
+                            or not isinstance(state, str)
+                            or state not in SESSION_MONITOR_STATES
+                            for key, state in value["states"].items()
+                        )
+                    ):
+                        raise ValueError("invalid session monitor state")
+                    previous = value["states"]
+                current = {key: state for key, (state, _error) in observed.items()}
+                for account_id, (state, error) in observed.items():
+                    old = previous.get(account_id)
+                    if old != state and (old is not None or state != "ready"):
+                        audit.record(
+                            session,
+                            request_id=str(uuid.uuid4()),
+                            actor_kind="system",
+                            actor_id=None,
+                            event="session_transition",
+                            account_id=account_id,
+                            decision=state,
+                            error_code=error,
+                        )
+                if setting is None and current:
+                    session.add(Setting(key=SESSION_MONITOR_KEY, value={"states": current}))
+                elif setting is not None and previous != current:
+                    setting.value = {"states": current}
+                session.commit()
+
     async def owner_account_status(self, account_id: str, *, reconnect: bool = False) -> dict:
         """Owner-only caller must authenticate before entering this core method."""
         with self.sessions() as session:
@@ -599,17 +712,9 @@ class Gateway:
                     if reconnect
                     else self.adapter.status(account_id)
                 )
-                status = await asyncio.wait_for(operation, timeout=self.timeout_seconds)
-                if (
-                    not isinstance(status, SessionStatus)
-                    or status.state
-                    not in {"ready", "disconnected", "reauth_required", "initializing"}
-                    or type(status.intervention_required) is not bool
-                    or (status.state == "ready" and status.intervention_required)
-                ):
-                    raise AdapterError("adapter_failure", outcome_unknown=reconnect)
-                if status.state == "reauth_required" and not status.intervention_required:
-                    status = SessionStatus("reauth_required", intervention_required=True)
+                status = self._validated_session_status(
+                    await asyncio.wait_for(operation, timeout=self.timeout_seconds)
+                )
             except SessionUnavailable as exc:
                 failure = {
                     "state": exc.code,

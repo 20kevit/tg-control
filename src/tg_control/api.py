@@ -36,6 +36,8 @@ from .request_audit import BoundaryAudit, RequestAudit, request_id_context
 from .schemas import Batch
 from .security import SecurityBoundary
 
+SESSION_MONITOR_INTERVAL_SECONDS = 60
+
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -106,14 +108,14 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        task = None
+        tasks: list[asyncio.Task] = []
         try:
             # Refuse an uninitialized or old schema rather than auto-migrating at startup.
             with engine.connect() as connection:
                 revision = connection.execute(
                     text("SELECT version_num FROM alembic_version")
                 ).scalar_one()
-                if revision != "0003":
+                if revision != "0004":
                     raise RuntimeError("database migrations are not up to date")
             with sessions() as session:
                 stored = session.get(Setting, "retention")
@@ -127,7 +129,12 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                 ticks = 0
                 while True:
                     await asyncio.sleep(60)
-                    gateway.maintain_cache()
+                    try:
+                        gateway.maintain_cache()
+                    except Exception:
+                        logging.getLogger("tg_control.maintenance").error(
+                            "cache maintenance failed"
+                        )
                     ticks += 1
                     if ticks % 60 == 0:
                         try:
@@ -138,16 +145,24 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                                 "media maintenance failed"
                             )
 
-            task = asyncio.create_task(maintenance())
+            async def monitor_sessions() -> None:
+                while True:
+                    try:
+                        await gateway.maintain_sessions()
+                    except Exception:
+                        logging.getLogger("tg_control.maintenance").error(
+                            "session monitoring failed"
+                        )
+                    await asyncio.sleep(SESSION_MONITOR_INTERVAL_SECONDS)
+
+            tasks = [asyncio.create_task(maintenance()), asyncio.create_task(monitor_sessions())]
             async with mcp.session_manager.run():
                 yield
         finally:
-            if task:
+            for task in tasks:
                 task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
             await gateway.close()
             engine.dispose()
 
@@ -421,11 +436,16 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     async def get_audit(
         limit: Annotated[int, Query(ge=1, le=500)] = 100,
         before_id: Annotated[int | None, Query(ge=1)] = None,
+        event_filter: Annotated[
+            str | None, Query(alias="event", min_length=1, max_length=64, pattern=r"^[a-z0-9_]+$")
+        ] = None,
     ):
         with sessions() as session:
             query = select(AuditEvent).order_by(AuditEvent.id.desc()).limit(limit)
             if before_id is not None:
                 query = query.where(AuditEvent.id < before_id)
+            if event_filter is not None:
+                query = query.where(AuditEvent.event == event_filter)
             events = session.scalars(query).all()
             owner_audit(session, "view_audit")
             session.commit()
