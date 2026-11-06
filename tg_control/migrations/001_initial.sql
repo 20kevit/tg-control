@@ -1,5 +1,4 @@
--- Draft PostgreSQL baseline. Not automatically executed; review before applying.
-BEGIN;
+-- Additive PostgreSQL baseline; applied transactionally by storage.migrate.
 CREATE TABLE accounts (id text PRIMARY KEY, alias text NOT NULL UNIQUE);
 CREATE TABLE clients (id text PRIMARY KEY, disabled boolean NOT NULL DEFAULT false);
 CREATE TABLE credentials (
@@ -20,4 +19,3 @@ CREATE TABLE audit (
 CREATE INDEX audit_time ON audit(created_at);
 CREATE TABLE settings (key text PRIMARY KEY, value jsonb NOT NULL);
 INSERT INTO settings VALUES ('audit_retention_days', '90'), ('message_cache_seconds', '0'), ('media_retention_seconds', '0');
-COMMIT;
