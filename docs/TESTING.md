@@ -81,10 +81,14 @@ Run the interface gate exactly as CI would:
 - `tests/test_jobs.py` includes a cancelled mutating execution that must be finalized `outcome_unknown`/`interrupted` and must not be retried by lease recovery.
 - `tests/test_backup.py` covers manifest v2 round-trip, legacy v1 warnings, wrong key, tampered ciphertext, truncation, revision mismatch (`compatible: false`, exit `3`), invalid layout/empty dump, a read-only verify that writes nothing, and the `verify` CLI.
 
+## Property-style security boundaries
+
+`tests/test_property_boundaries.py` uses a fixed seed and a hostile corpus (no property-testing dependency is installed): error-code normalization, cursor round-trip plus every single-character tamper, foreign-scope/foreign-key rejection, metric label and outcome bounding, nested log redaction (including a regression for redaction that previously stopped at the top level), and throttle invariants. `tests/test_migrations.py` additionally proves a `downgrade -1` / `upgrade head` cycle on a disposable SQLite database, and `tests/test_workflows.py` / `tests/test_plugins.py` prove the in-flight concurrency caps refuse (`429`) rather than queue.
+
 ## Exact commands and current result
 
 ```sh
-.venv/bin/pytest -q                                  # 391 passed, 1 optional native probe skipped
+.venv/bin/pytest -q                                  # 400 passed, 1 optional native probe skipped
 .venv/bin/ruff check src tests alembic scripts        # clean
 .venv/bin/python scripts/check_interfaces.py          # 72 operations, 20 MCP tools, 26 CLI commands
 .venv/bin/python scripts/gen_traceability.py          # matrix regenerated, 4 checks pass

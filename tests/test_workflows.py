@@ -387,3 +387,36 @@ async def test_run_history_is_owner_visible_and_bounded(env):
     assert env.service.get_run(first["run_id"])["state"] == "succeeded"
     with pytest.raises(WorkflowError):
         env.service.runs(workflow["workflow_id"], limit=0)
+
+
+async def test_concurrent_runs_are_bounded_and_refused_without_side_effects(env):
+    """A bounded in-flight limit refuses extra runs instead of queueing them."""
+    definition = env.definition()
+    workflow = env.service.create(definition)
+    with pytest.raises(ValueError):
+        Workflows(env.database, env.gateway, max_inflight=0)
+    with pytest.raises(ValueError):
+        Workflows(env.database, env.gateway, max_inflight=65)
+
+    env.service.max_inflight = 1
+    release = asyncio.Event()
+    started = asyncio.Event()
+
+    async def slow_run(workflow_id, request, *, request_id=None):
+        started.set()
+        await release.wait()
+        return {"run_id": "synthetic", "state": "succeeded"}
+
+    env.service._run = slow_run
+    first = asyncio.create_task(env.service.run(workflow["workflow_id"], RunRequest()))
+    await started.wait()
+    with pytest.raises(WorkflowError) as busy:
+        await env.service.run(workflow["workflow_id"], RunRequest())
+    assert busy.value.code == "busy" and busy.value.status_code == 429
+    release.set()
+    assert (await first)["state"] == "succeeded"
+    assert env.service._inflight == 0
+    # The refusal created no run record, and capacity is available again.
+    with env.database() as session:
+        assert session.scalars(select(WorkflowRun)).all() == []
+    env.service._run = env.service._run  # restored by the fixture on the next test

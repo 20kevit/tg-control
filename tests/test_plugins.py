@@ -345,3 +345,52 @@ async def test_upgrade_requires_new_version_and_rebinding(env):
     assert new_cap.value.code == "capability_not_granted"
     env.registry.grant("firstparty.echo", [PluginCapability.COMMAND])
     assert env.registry.enable("firstparty.echo")["state"] == "enabled"
+
+
+async def test_concurrent_plugin_calls_are_bounded(env):
+    """Plugin execution is bounded in-process and refuses rather than queueing."""
+    from tg_control.schemas import Batch
+
+    manifest = env.manifest(
+        capabilities=[PluginCapability.READ, PluginCapability.WRITE],
+        extension_points=[ExtensionPoint.WORKER],
+    )
+    env.installed_enabled(
+        capabilities=manifest.capabilities, extension_points=manifest.extension_points
+    )
+    with pytest.raises(ValueError):
+        PluginRegistry(env.database, env.gateway, max_inflight=0)
+
+    env.registry.max_inflight = 1
+    release = asyncio.Event()
+    started = asyncio.Event()
+    original = env.gateway.execute
+
+    async def slow_execute(principal, batch):
+        started.set()
+        await release.wait()
+        return await original(principal, batch)
+
+    env.gateway.execute = slow_execute
+    runtime = env.registry.runtime("firstparty.echo")
+    batch = Batch(
+        actions=[
+            Send(
+                operation="send",
+                account_id=env.account.id,
+                chat_id="public-channel",
+                text="synthetic plugin concurrency",
+            )
+        ],
+        idempotency_key=uuid.uuid4(),
+    )
+    first = asyncio.create_task(runtime.execute(batch))
+    await started.wait()
+    with pytest.raises(PluginError) as busy:
+        await runtime.execute(batch)
+    assert busy.value.code == "plugin_busy" and busy.value.status_code == 429
+    release.set()
+    result = await first
+    assert result["items"][0]["status"] == "success"
+    assert env.registry._inflight == 0
+    env.gateway.execute = original

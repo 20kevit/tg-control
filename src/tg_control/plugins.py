@@ -240,10 +240,15 @@ class PluginRegistry:
         gateway: Gateway,
         *,
         clock: Callable[[], float] = time.monotonic,
+        max_inflight: int = 8,
     ):
+        if type(max_inflight) is not int or not 1 <= max_inflight <= 64:
+            raise ValueError("invalid plugin concurrency limit")
         self.sessions = sessions
         self.gateway = gateway
         self._clock = clock
+        self.max_inflight = max_inflight
+        self._inflight = 0
         self._plugins: dict[str, dict[str, Any]] = {}
         self._grants: dict[str, set[PluginCapability]] = defaultdict(set)
         self._windows: dict[str, deque[float]] = defaultdict(deque)
@@ -353,6 +358,8 @@ class PluginRegistry:
         *,
         principal: Principal | None = None,
     ) -> Any:
+        if self._inflight >= self.max_inflight:
+            raise PluginError("plugin_busy", 429)
         entry = self._require(plugin_id)
         manifest: PluginManifest = entry["manifest"]
         if entry["state"] != PluginState.ENABLED:
@@ -396,6 +403,7 @@ class PluginRegistry:
                 limit=payload["limit"],
             )
             batch = Batch(actions=[action])
+        self._inflight += 1
         try:
             result = await asyncio.wait_for(
                 self.gateway.execute(scoped, batch),
@@ -414,6 +422,8 @@ class PluginRegistry:
         except Exception:
             self._record_failure(plugin_id, "plugin_error")
             raise PluginError("plugin_error", 502) from None
+        finally:
+            self._inflight = max(0, self._inflight - 1)
         self._failures[plugin_id] = 0
         record_component_outcome("plugins", "success", kind=operation)
         self._audit(plugin_id, f"plugin_{operation}", "success")

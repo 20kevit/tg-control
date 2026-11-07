@@ -68,6 +68,15 @@ AREAS: list[tuple[str, list[str], list[str]]] = [
         ["tests/test_observability.py"],
     ),
     ("Authentication throttling", ["src/tg_control/throttle.py"], ["tests/test_throttle.py"]),
+    (
+        "Security property boundaries",
+        [
+            "src/tg_control/errors.py",
+            "src/tg_control/pagination.py",
+            "src/tg_control/observability.py",
+        ],
+        ["tests/test_property_boundaries.py"],
+    ),
     ("Migrations / data model", ["src/tg_control/db.py", "alembic/versions"],
      ["tests/test_migrations.py", "tests/test_postgres_api.py"]),
     ("Packaging / deployment config", ["Dockerfile", "compose.yaml", "pyproject.toml"],

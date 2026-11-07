@@ -192,13 +192,22 @@ PRUNEABLE_RUN_STATES = frozenset({"succeeded", "partial_failure", "failed", "out
 
 class Workflows:
     def __init__(
-        self, sessions: sessionmaker, gateway: Gateway, *, step_timeout_seconds: float = 30.0
+        self,
+        sessions: sessionmaker,
+        gateway: Gateway,
+        *,
+        step_timeout_seconds: float = 30.0,
+        max_inflight: int = 4,
     ) -> None:
         if not 0 < step_timeout_seconds <= 300:
             raise ValueError("invalid step timeout")
+        if type(max_inflight) is not int or not 1 <= max_inflight <= 64:
+            raise ValueError("invalid workflow concurrency limit")
         self.sessions = sessions
         self.gateway = gateway
         self.step_timeout_seconds = step_timeout_seconds
+        self.max_inflight = max_inflight
+        self._inflight = 0
 
     # -- definitions -------------------------------------------------------
 
@@ -341,6 +350,22 @@ class Workflows:
         }
 
     async def run(
+        self,
+        workflow_id: str,
+        request: RunRequest,
+        *,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Start a run, refusing rather than queueing beyond the in-flight bound."""
+        if self._inflight >= self.max_inflight:
+            raise WorkflowError("busy", 429)
+        self._inflight += 1
+        try:
+            return await self._run(workflow_id, request, request_id=request_id)
+        finally:
+            self._inflight -= 1
+
+    async def _run(
         self,
         workflow_id: str,
         request: RunRequest,

@@ -14,9 +14,9 @@ Regenerate with `python scripts/gen_traceability.py` after changing tests.
 | Commands and media pipeline | `src/tg_control/commands.py`, `src/tg_control/media.py` | `tests/test_commands.py`, `tests/test_commands_api.py`, `tests/test_media.py` | 24 |
 | Events | `src/tg_control/events.py` | `tests/test_events.py`, `tests/test_events_jobs_api.py` | 23 |
 | Durable jobs | `src/tg_control/jobs.py`, `src/tg_control/job_kinds.py` | `tests/test_jobs.py`, `tests/test_events_jobs_api.py` | 35 |
-| Workflows | `src/tg_control/workflows.py` | `tests/test_workflows.py`, `tests/test_workflows_api.py` | 15 |
+| Workflows | `src/tg_control/workflows.py` | `tests/test_workflows.py`, `tests/test_workflows_api.py` | 16 |
 | AI task contract | `src/tg_control/ai.py` | `tests/test_ai.py`, `tests/test_ai_api.py` | 12 |
-| Plugins | `src/tg_control/plugins.py` | `tests/test_plugins.py`, `tests/test_plugins_api.py` | 10 |
+| Plugins | `src/tg_control/plugins.py` | `tests/test_plugins.py`, `tests/test_plugins_api.py` | 11 |
 | Interfaces (HTTP/CLI/MCP/panel) | `src/tg_control/api.py`, `src/tg_control/cli.py`, `src/tg_control/mcp_server.py`, `src/tg_control/mcp_stdio.py`, `src/tg_control/static` | `tests/test_api.py`, `tests/test_cli.py`, `tests/test_mcp.py`, `tests/test_stdio_process.py`, `tests/test_browser.py` | 28 |
 | Audit / retention / instance guard | `src/tg_control/audit.py`, `src/tg_control/cache.py`, `src/tg_control/instance_guard.py`, `src/tg_control/security.py`, `src/tg_control/request_audit.py` | `tests/test_retention.py`, `tests/test_retention_pruning.py`, `tests/test_api.py`, `tests/test_operational_config.py` | 30 |
 | Backup / recovery | `src/tg_control/backup.py`, `src/tg_control/backup_probe.py` | `tests/test_backup.py`, `tests/test_backup_catalogs.py` | 13 |
@@ -24,7 +24,8 @@ Regenerate with `python scripts/gen_traceability.py` after changing tests.
 | Cursor pagination | `src/tg_control/pagination.py` | `tests/test_pagination.py` | 10 |
 | Observability / health / diagnostics | `src/tg_control/observability.py`, `src/tg_control/diagnostics.py` | `tests/test_observability.py` | 13 |
 | Authentication throttling | `src/tg_control/throttle.py` | `tests/test_throttle.py` | 6 |
-| Migrations / data model | `src/tg_control/db.py`, `alembic/versions` | `tests/test_migrations.py`, `tests/test_postgres_api.py` | 6 |
+| Security property boundaries | `src/tg_control/errors.py`, `src/tg_control/pagination.py`, `src/tg_control/observability.py` | `tests/test_property_boundaries.py` | 6 |
+| Migrations / data model | `src/tg_control/db.py`, `alembic/versions` | `tests/test_migrations.py`, `tests/test_postgres_api.py` | 7 |
 | Packaging / deployment config | `Dockerfile`, `compose.yaml`, `pyproject.toml` | `tests/test_operational_config.py` | 4 |
 | Owner notification / monitoring | `src/tg_control/monitoring.py` | `tests/test_session_monitor.py`, `tests/test_monitor_progress.py`, `tests/test_api.py` | 28 |
 | Delivery / evidence | `docs/TRACEABILITY.md`, `docs/ACCEPTANCE.md`, `docs/ROADMAP.md`, `scripts/gen_traceability.py` | `tests/test_traceability.py` | 4 |
@@ -263,6 +264,7 @@ Regenerate with `python scripts/gen_traceability.py` after changing tests.
 - `tests/test_migrations.py::test_sqlite_migration`
 - `tests/test_migrations.py::test_postgres_migration_and_storage`
 - `tests/test_migrations.py::test_incremental_index_migration_preserves_audit_and_old_schema_fails_startup`
+- `tests/test_migrations.py::test_migration_rollback_and_reapply_on_disposable_sqlite`
 
 ### `tests/test_monitor_progress.py`
 
@@ -319,6 +321,7 @@ Regenerate with `python scripts/gen_traceability.py` after changing tests.
 - `tests/test_plugins.py::test_rate_limit_timeout_and_audit_containment`
 - `tests/test_plugins.py::test_repeated_failures_quarantine_without_affecting_core`
 - `tests/test_plugins.py::test_upgrade_requires_new_version_and_rebinding`
+- `tests/test_plugins.py::test_concurrent_plugin_calls_are_bounded`
 
 ### `tests/test_plugins_api.py`
 
@@ -340,6 +343,15 @@ Regenerate with `python scripts/gen_traceability.py` after changing tests.
 - `tests/test_postgres_api.py::test_postgres_api_round_trip`
 - `tests/test_postgres_api.py::test_postgres_single_gateway_guard_and_loss_are_fail_closed`
 - `tests/test_postgres_api.py::test_guard_sanitizes_driver_and_cleanup_failures`
+
+### `tests/test_property_boundaries.py`
+
+- `tests/test_property_boundaries.py::test_error_codes_are_always_safe_tokens`
+- `tests/test_property_boundaries.py::test_cursor_round_trip_and_single_character_tamper_rejection`
+- `tests/test_property_boundaries.py::test_cursor_never_authenticates_for_a_different_scope`
+- `tests/test_property_boundaries.py::test_metric_labels_and_outcomes_are_bounded`
+- `tests/test_property_boundaries.py::test_json_log_redaction_with_hostile_nested_values`
+- `tests/test_property_boundaries.py::test_throttle_invariants_hold_for_random_sequences`
 
 ### `tests/test_retention.py`
 
@@ -435,6 +447,7 @@ Regenerate with `python scripts/gen_traceability.py` after changing tests.
 - `tests/test_workflows.py::test_interrupted_run_recovery_is_conservative`
 - `tests/test_workflows.py::test_run_with_revoked_credential_does_not_execute`
 - `tests/test_workflows.py::test_run_history_is_owner_visible_and_bounded`
+- `tests/test_workflows.py::test_concurrent_runs_are_bounded_and_refused_without_side_effects`
 
 ### `tests/test_workflows_api.py`
 

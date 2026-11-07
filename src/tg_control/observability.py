@@ -98,16 +98,48 @@ def configure_logging(level: str = "INFO", *, stream=None) -> None:
         numeric = logging.INFO
     if _configured:
         _logger.setLevel(numeric)
-        if stream is not None and getattr(_logger.handlers[0], "stream", None) is not stream:
-            _logger.handlers[0].setStream(stream)
+        handler = _logger.handlers[0]
+        current = getattr(handler, "stream", None)
+        if stream is not None:
+            if current is not stream:
+                handler.setStream(stream)
+        elif current is None or getattr(current, "closed", False):
+            # A replaced/closed stream (for example a test capture) must not
+            # swallow later records; fall back to the standard error stream.
+            handler.setStream(sys.stderr)
         return
-    handler = logging.StreamHandler(stream or sys.stderr)
+    handler = _SafeStreamHandler(stream or sys.stderr)
     handler.setFormatter(_JsonFormatter())
     _logger.handlers.clear()
     _logger.addHandler(handler)
     _logger.setLevel(numeric)
     _logger.propagate = False
     _configured = True
+
+
+class _SafeStreamHandler(logging.StreamHandler):
+    """Stream handler that survives a replaced or closed stream.
+
+    Test capture and process reconfiguration can close the stream a handler
+    still references. Losing a log line is acceptable; raising from logging (or
+    crashing the caller) is not.
+    """
+
+    def flush(self) -> None:
+        try:
+            super().flush()
+        except (ValueError, OSError):
+            pass
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            super().emit(record)
+        except (ValueError, OSError):
+            try:
+                self.stream = sys.stderr
+                super().emit(record)
+            except Exception:
+                pass
 
 
 class _JsonFormatter(logging.Formatter):
@@ -133,24 +165,56 @@ class _JsonFormatter(logging.Formatter):
         return text[:MAX_RECORD_CHARS]
 
 
-def _clean_value(value: Any) -> Any:
+MAX_NESTED_DEPTH = 4
+MAX_NESTED_ITEMS = 32
+
+
+def _clean_value(value: Any, depth: int = 0) -> Any:
+    """Bound and redact a value, recursing into bounded containers.
+
+    Nested structures are traversed (up to a fixed depth) because a redaction
+    that only looked at top-level keys would leak a secret placed one level
+    deeper. Anything unexpected (cycles, custom objects, over-long sequences)
+    degrades to a bounded string instead of raising.
+    """
     if value is None or isinstance(value, bool):
         return value
     if isinstance(value, int):
         return value
     if isinstance(value, float):
         return value if math.isfinite(value) else None
+    if isinstance(value, dict) and depth < MAX_NESTED_DEPTH:
+        cleaned: dict[str, Any] = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= MAX_NESTED_ITEMS:
+                cleaned["[truncated]"] = True
+                break
+            name = str(key)[:64]
+            if _is_sensitive(name):
+                cleaned[name] = REDACTED
+            else:
+                cleaned[name] = _clean_value(item, depth + 1)
+        return cleaned
+    if isinstance(value, (list, tuple)) and depth < MAX_NESTED_DEPTH:
+        return [_clean_value(item, depth + 1) for item in value[:MAX_NESTED_ITEMS]]
     text = str(value)
     return text[:MAX_FIELD_CHARS]
+
+
+def _is_sensitive(name: str) -> bool:
+    lowered = name.lower()
+    return any(part in lowered for part in SENSITIVE_KEY_PARTS)
 
 
 def safe_fields(fields: dict[str, Any]) -> dict[str, Any]:
     """Redact sensitive keys and bound every value. Never raises."""
     cleaned: dict[str, Any] = {}
-    for key, value in fields.items():
+    for index, (key, value) in enumerate(fields.items()):
+        if index >= MAX_NESTED_ITEMS:
+            cleaned["[truncated]"] = True
+            break
         name = str(key)[:64]
-        lowered = name.lower()
-        if any(part in lowered for part in SENSITIVE_KEY_PARTS):
+        if _is_sensitive(name):
             cleaned[name] = REDACTED
         else:
             cleaned[name] = _clean_value(value)

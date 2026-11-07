@@ -135,3 +135,25 @@ def test_incremental_index_migration_preserves_audit_and_old_schema_fails_startu
             ).status_code
             == 200
         )
+
+
+def test_migration_rollback_and_reapply_on_disposable_sqlite(tmp_path):
+    """A downgrade must undo exactly the newest revision and reapply cleanly."""
+    url = f"sqlite:///{tmp_path / 'rollback.sqlite'}"
+    upgrade(url, "head")
+    engine = make_engine(url)
+    tables_before = set(inspect(engine).get_table_names())
+    engine.dispose()
+
+    migration(url, "downgrade", "-1")
+    engine = make_engine(url)
+    tables_after = set(inspect(engine).get_table_names())
+    engine.dispose()
+    assert "workflow_runs" in tables_before
+    assert "workflow_runs" not in tables_after
+    assert tables_after < tables_before
+
+    upgrade(url, "head")
+    engine = make_engine(url)
+    assert set(inspect(engine).get_table_names()) == tables_before
+    engine.dispose()
