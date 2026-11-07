@@ -1,6 +1,6 @@
 # Operations: synthetic-only development
 
-**Do not deploy or connect real Telegram accounts/data.** Production, remote access, credentials, external infrastructure, destructive actions and firewall/DNS changes require separate explicit owner approval and the unresolved compliance decision. The following is a local development procedure, not a production-ready deployment. Docker/Compose have not been run in the current environment; verify them on a disposable local machine before use. See [status](STATUS.md).
+**Do not deploy or connect real Telegram accounts/data.** The image/Compose build, container startup, recreation and in-container checks are **not executed** in the development sandbox (no container runtime): see `DEPLOYMENT.md` §8 for the exact matrix and `STATUS.md` for the recorded commands. Host-process lifecycle, health, graceful shutdown, restart persistence and failure modes *are* executed by `tests/test_runtime_lifecycle.py`. Production, remote access, credentials, external infrastructure, destructive actions and firewall/DNS changes require separate explicit owner approval and the unresolved compliance decision. The following is a local development procedure, not a production-ready deployment. Docker/Compose have not been run in the current environment; verify them on a disposable local machine before use. See [status](STATUS.md).
 
 ## Local Docker setup
 
@@ -11,9 +11,9 @@ Requirements: Docker Compose v2, non-root host user, Python for local secret gen
 3. Export only non-secret numeric IDs, e.g. `export TG_UID="$(id -u)" TG_GID="$(id -g)"`. Do not use UID 0. Then, after reviewing the compose file:
 
 ```sh
-docker compose up -d --wait db
-docker compose run --rm --no-deps gateway python -m alembic upgrade head
-docker compose up -d gateway
+# migrations are a one-shot, explicit service (profile `tools`) -- never automatic
+docker compose run --rm migrate        # == python -m alembic upgrade head
+docker compose up -d --wait gateway    # waits for the readiness-based health check
 ```
 
 Open `http://127.0.0.1:8000/admin/` locally. Uvicorn listens inside the container but Compose publishes only loopback; PostgreSQL has no published port by default. Migrations are an explicit operation, never automatic at startup. Startup fails closed if the schema revision is not current. The health endpoints require the owner Bearer credential; `/health/live` also requires the mandatory audit write and `/health/ready` additionally checks database connectivity. The container health probe reads the owner token from its private file and connects only to loopback, without putting the token in its command line or logs. Each successful probe creates start/outcome audit events (at the default 30-second interval, roughly 5,760 rows/day); monitor growth and perform owner-approved pruning according to retention. When the panel remains open, its two monitoring/history polls create approximately 17,280 more audit rows/day, plus roughly 11,520 rows/day for each enabled account's status poll. Never configure access/body/authorization logging or trust proxy headers. Check container health, storage capacity, audit failures and `media maintenance failed` without recording secrets/content.
@@ -126,3 +126,11 @@ Every prune endpoint accepts `dry_run: true`, reports `eligible`/`deleted`, is i
 | `422 invalid_cursor` | Client mixing cursors across scopes/endpoints | Restart pagination from the first page |
 | Stuck workflow run | `running` after a crash | Resolved to `outcome_unknown` at next start; reconcile the effect |
 | Archive fails to verify | Wrong key file, truncated copy, revision mismatch | Restore from a verified copy; never "repair" ciphertext |
+
+## Deployment lifecycle (single instance)
+
+Startup order is explicit and fail-closed: (1) the one-shot `migrate` service brings the schema to `head`; (2) `db` becomes healthy via `pg_isready`; (3) `gateway` starts and checks `alembic_version` plus the expected table set before binding traffic; (4) readiness becomes `200`, which is what the container health check uses. Any deviation (revision `behind`/`ahead`/`unknown`, tables missing, database unreachable) refuses startup with an actionable message and a `startup.schema_rejected` critical log line. The application never migrates itself, so an operator can always tell whether a schema change was intentional.
+
+Stop order: `docker compose stop gateway` sends SIGTERM; uvicorn stops accepting, drains in-flight requests, runs the lifespan shutdown (scheduler, workflow recovery, engine disposal) within its 30 s window; Compose allows 45 s before SIGKILL. `docker compose down` keeps `./state`. The instance guard (PostgreSQL advisory lock) is released by the closing connection, so a restarted gateway reacquires it.
+
+Resource bounds applied by Compose: gateway `mem_limit 512m`, `cpus 1.0`, `pids_limit 256`, read-only rootfs with tmpfs `/tmp` (64 MiB) and media staging (256 MiB), `cap_drop: ALL`, `no-new-privileges`, `init: true`; database `mem_limit 1g`, `pids_limit 512`, `shm_size 256m`; both cap `json-file` logs at 10 MiB × 3. See `DEPLOYMENT.md` for the full config/volume map and the blocked container-runtime checks.

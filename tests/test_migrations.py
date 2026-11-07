@@ -111,7 +111,7 @@ def test_incremental_index_migration_preserves_audit_and_old_schema_fails_startu
         )
         session.commit()
     engine.dispose()
-    with pytest.raises(RuntimeError, match="database migrations are not up to date"):
+    with pytest.raises(RuntimeError, match="does not match this build"):
         with TestClient(create_app(settings)):
             pass
     migrate(settings.database_url)
@@ -157,3 +157,73 @@ def test_migration_rollback_and_reapply_on_disposable_sqlite(tmp_path):
     engine = make_engine(url)
     assert set(inspect(engine).get_table_names()) == tables_before
     engine.dispose()
+
+
+def test_partial_schema_is_rejected_even_when_the_revision_matches(settings):
+    """A half-applied restore must not pass the startup gate.
+
+    The recorded Alembic revision can match while a table is missing (interrupted
+    restore, hand-edited database). `schema_state` reports ``incomplete`` and the
+    application refuses to serve rather than failing later on a missing table.
+    """
+    from sqlalchemy import text
+
+    from tg_control.api import create_app
+    from tg_control.db import schema_state
+
+    migrate(settings.database_url)
+    engine = make_engine(settings.database_url)
+    assert schema_state(engine)["objects"] == "complete"
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE workflow_runs"))
+    state = schema_state(engine)
+    engine.dispose()
+    assert state["state"] == "current" and state["objects"] == "incomplete"
+    with pytest.raises(RuntimeError, match="schema is incomplete"):
+        with TestClient(create_app(settings)):
+            pass
+    # Nothing repairs itself: `alembic upgrade head` is a no-op at head, so an
+    # incomplete schema requires the documented manual recovery (restore from a
+    # verified backup, or rebuild an explicitly disposable database).
+    migrate(settings.database_url)
+    engine = make_engine(settings.database_url)
+    assert schema_state(engine)["objects"] == "incomplete"
+    from tg_control.db import Base
+
+    with engine.begin() as connection:
+        Base.metadata.drop_all(connection)
+        connection.execute(text("DROP TABLE alembic_version"))
+    engine.dispose()
+    migrate(settings.database_url)
+    with TestClient(create_app(settings)) as client:
+        assert (
+            client.get(
+                "/health/ready", headers={"Authorization": "Bearer " + settings.owner_token}
+            ).json()["checks"]["schema_objects"]
+            == "complete"
+        )
+
+
+def test_unknown_revision_is_reported_and_refused(tmp_path):
+    """Revisions this build cannot order are never treated as compatible."""
+    from tg_control.db import schema_state
+
+    url = f"sqlite:///{tmp_path / 'unknown.sqlite'}"
+    upgrade(url, "head")
+    engine = make_engine(url)
+    with engine.begin() as connection:
+        from sqlalchemy import text
+
+        connection.execute(text("UPDATE alembic_version SET version_num = 'external-fork'"))
+    state = schema_state(engine)
+    engine.dispose()
+    assert state == {"state": "unknown", "revision": "external-fork", "objects": "unknown"}
+
+
+def test_migration_policy_is_explicit_and_never_automatic():
+    from tg_control import db
+
+    assert db.MIGRATION_POLICY == "require_current"
+    source = (ROOT / "src" / "tg_control" / "api.py").read_text()
+    assert "alembic" not in source.replace("alembic upgrade head", "")
+    assert "command.upgrade" not in source and "upgrade(" not in source

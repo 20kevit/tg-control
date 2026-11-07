@@ -4,31 +4,46 @@ This file maps requirement areas to the implementation modules and the exact exe
 
 Regenerate with `python scripts/gen_traceability.py` after changing tests.
 
-| Area | Implementation | Test files | Executed tests |
+Evidence labels: **Implemented** (code only), **Locally tested** (executed by the local gate), **Container-tested** (built image under a real runtime), **Hosted-CI-tested** (executed by the hosted workflow), **Not tested**, **Blocked** (cannot execute here; limitation recorded in STATUS.md), **Requires owner action**. Only labels backed by recorded execution appear below: no row is Container-tested or Hosted-CI-tested today.
+
+| Area | Contract | Implementation | Test files | Executed tests | Evidence |
+|---|---|---|---|---|---|
+| Legal / privacy gate | COMPLIANCE.md, PRD.md | `docs/COMPLIANCE.md`, `docs/PRD.md`, `docs/SECURITY.md` | `tests/test_operational_config.py` | 4 | Blocked |
+| TDLib / accounts (offline boundary) | TDLIB_OFFLINE.md | `src/tg_control/adapters/tdlib_boundary.py`, `src/tg_control/adapters/tdlib_poc.py`, `src/tg_control/adapters/tdlib_read_model.py`, `src/tg_control/adapters/tdlib_outcomes.py` | `tests/test_tdlib_boundary.py`, `tests/test_adapter.py`, `tests/test_tdlib_read_model.py`, `tests/test_tdlib_outcomes.py`, `tests/test_native_tdlib.py` | 28 | Locally tested |
+| Clients and policy | SECURITY.md, POLICY.md | `src/tg_control/auth.py`, `src/tg_control/policy.py`, `src/tg_control/core.py` | `tests/test_policy_auth.py`, `tests/test_core.py` | 27 | Locally tested |
+| Read / search / history / media | API.md | `src/tg_control/core.py`, `src/tg_control/adapters/synthetic.py`, `src/tg_control/media.py` | `tests/test_core.py`, `tests/test_media.py`, `tests/test_retention.py` | 36 | Locally tested |
+| Write / admin / batch | API.md | `src/tg_control/core.py`, `src/tg_control/schemas.py` | `tests/test_adapter.py`, `tests/test_core.py` | 27 | Locally tested |
+| Commands and media pipeline | COMMANDS_MEDIA_AI_PLUGINS.md | `src/tg_control/commands.py`, `src/tg_control/media.py` | `tests/test_commands.py`, `tests/test_commands_api.py`, `tests/test_media.py` | 24 | Locally tested |
+| Events | EVENTS_JOBS_WORKFLOWS.md | `src/tg_control/events.py` | `tests/test_events.py`, `tests/test_events_jobs_api.py` | 23 | Locally tested |
+| Durable jobs | EVENTS_JOBS_WORKFLOWS.md | `src/tg_control/jobs.py`, `src/tg_control/job_kinds.py` | `tests/test_jobs.py`, `tests/test_events_jobs_api.py` | 35 | Locally tested |
+| Workflows | EVENTS_JOBS_WORKFLOWS.md | `src/tg_control/workflows.py` | `tests/test_workflows.py`, `tests/test_workflows_api.py` | 16 | Locally tested |
+| AI task contract | COMMANDS_MEDIA_AI_PLUGINS.md | `src/tg_control/ai.py` | `tests/test_ai.py`, `tests/test_ai_api.py` | 12 | Locally tested |
+| Plugins | COMMANDS_MEDIA_AI_PLUGINS.md | `src/tg_control/plugins.py` | `tests/test_plugins.py`, `tests/test_plugins_api.py` | 11 | Locally tested |
+| Interfaces (HTTP/CLI/MCP/panel) | API.md, MCP.md, CLI.md | `src/tg_control/api.py`, `src/tg_control/cli.py`, `src/tg_control/mcp_server.py`, `src/tg_control/mcp_stdio.py`, `src/tg_control/static` | `tests/test_api.py`, `tests/test_cli.py`, `tests/test_mcp.py`, `tests/test_stdio_process.py`, `tests/test_browser.py` | 28 | Locally tested |
+| Audit / retention / instance guard | SECURITY.md, OPERATIONS.md | `src/tg_control/audit.py`, `src/tg_control/cache.py`, `src/tg_control/instance_guard.py`, `src/tg_control/security.py`, `src/tg_control/request_audit.py` | `tests/test_retention.py`, `tests/test_retention_pruning.py`, `tests/test_api.py`, `tests/test_operational_config.py` | 30 | Locally tested |
+| Backup / recovery | BACKUP_RESTORE.md, OPERATIONS.md | `src/tg_control/backup.py`, `src/tg_control/backup_probe.py` | `tests/test_backup.py`, `tests/test_backup_catalogs.py`, `tests/test_disaster_recovery.py` | 14 | Locally tested |
+| Interface contracts (parity matrix) | CONTRACT_INDEX.md | `src/tg_control/contracts.py`, `docs/contracts/interfaces.json`, `scripts/gen_contracts.py` | `tests/test_contracts.py` | 11 | Locally tested |
+| Cursor pagination | API.md | `src/tg_control/pagination.py` | `tests/test_pagination.py` | 10 | Locally tested |
+| Observability / health / diagnostics | OPERATIONS.md | `src/tg_control/observability.py`, `src/tg_control/diagnostics.py` | `tests/test_observability.py` | 13 | Locally tested |
+| Authentication throttling | SECURITY.md | `src/tg_control/throttle.py` | `tests/test_throttle.py` | 6 | Locally tested |
+| Security property boundaries | SECURITY.md | `src/tg_control/errors.py`, `src/tg_control/pagination.py`, `src/tg_control/observability.py` | `tests/test_property_boundaries.py` | 6 | Locally tested |
+| Migrations / data model | DATA_MODEL.md | `src/tg_control/db.py`, `alembic/versions` | `tests/test_migrations.py`, `tests/test_postgres_api.py` | 10 | Locally tested |
+| Packaging / deployment config | DEPLOYMENT.md, RELEASE_PROCESS.md | `Dockerfile`, `.dockerignore`, `compose.yaml`, `.env.example`, `pyproject.toml`, `requirements.lock` | `tests/test_operational_config.py`, `tests/test_deployment.py` | 13 | Locally tested |
+| Deployment lifecycle (host process) | DEPLOYMENT.md | `scripts/runtime_smoke.py`, `src/tg_control/config.py`, `src/tg_control/healthcheck.py`, `docs/DEPLOYMENT.md` | `tests/test_runtime_lifecycle.py` | 1 | Locally tested |
+| Release metadata and provenance | RELEASE_PROCESS.md | `src/tg_control/version.py`, `scripts/build_release.py`, `docs/RELEASE_PROCESS.md` | `tests/test_deployment.py` | 9 | Locally tested |
+| Hosted CI pipeline | RELEASE_PROCESS.md | `.github/workflows/ci.yaml`, `scripts/ci.sh`, `scripts/container_smoke.sh` | `tests/test_deployment.py` | 9 | Not tested |
+| Owner notification / monitoring | OPERATIONS.md | `src/tg_control/monitoring.py` | `tests/test_session_monitor.py`, `tests/test_monitor_progress.py`, `tests/test_api.py` | 28 | Locally tested |
+| Delivery / evidence | ACCEPTANCE.md, TRACEABILITY.md | `docs/TRACEABILITY.md`, `docs/ACCEPTANCE.md`, `docs/ROADMAP.md`, `scripts/gen_traceability.py` | `tests/test_traceability.py` | 6 | Locally tested |
+
+## Executed but not yet evidenced in this environment
+
+| Requirement | Contract | Status | Why |
 |---|---|---|---|
-| Legal / privacy gate | `docs/COMPLIANCE.md`, `docs/PRD.md`, `docs/SECURITY.md` | `tests/test_operational_config.py` | 4 |
-| TDLib / accounts (offline boundary) | `src/tg_control/adapters/tdlib_boundary.py`, `src/tg_control/adapters/tdlib_poc.py`, `src/tg_control/adapters/tdlib_read_model.py`, `src/tg_control/adapters/tdlib_outcomes.py` | `tests/test_tdlib_boundary.py`, `tests/test_adapter.py`, `tests/test_tdlib_read_model.py`, `tests/test_tdlib_outcomes.py`, `tests/test_native_tdlib.py` | 28 |
-| Clients and policy | `src/tg_control/auth.py`, `src/tg_control/policy.py`, `src/tg_control/core.py` | `tests/test_policy_auth.py`, `tests/test_core.py` | 27 |
-| Read / search / history / media | `src/tg_control/core.py`, `src/tg_control/adapters/synthetic.py`, `src/tg_control/media.py` | `tests/test_core.py`, `tests/test_media.py`, `tests/test_retention.py` | 36 |
-| Write / admin / batch | `src/tg_control/core.py`, `src/tg_control/schemas.py` | `tests/test_adapter.py`, `tests/test_core.py` | 27 |
-| Commands and media pipeline | `src/tg_control/commands.py`, `src/tg_control/media.py` | `tests/test_commands.py`, `tests/test_commands_api.py`, `tests/test_media.py` | 24 |
-| Events | `src/tg_control/events.py` | `tests/test_events.py`, `tests/test_events_jobs_api.py` | 23 |
-| Durable jobs | `src/tg_control/jobs.py`, `src/tg_control/job_kinds.py` | `tests/test_jobs.py`, `tests/test_events_jobs_api.py` | 35 |
-| Workflows | `src/tg_control/workflows.py` | `tests/test_workflows.py`, `tests/test_workflows_api.py` | 16 |
-| AI task contract | `src/tg_control/ai.py` | `tests/test_ai.py`, `tests/test_ai_api.py` | 12 |
-| Plugins | `src/tg_control/plugins.py` | `tests/test_plugins.py`, `tests/test_plugins_api.py` | 11 |
-| Interfaces (HTTP/CLI/MCP/panel) | `src/tg_control/api.py`, `src/tg_control/cli.py`, `src/tg_control/mcp_server.py`, `src/tg_control/mcp_stdio.py`, `src/tg_control/static` | `tests/test_api.py`, `tests/test_cli.py`, `tests/test_mcp.py`, `tests/test_stdio_process.py`, `tests/test_browser.py` | 28 |
-| Audit / retention / instance guard | `src/tg_control/audit.py`, `src/tg_control/cache.py`, `src/tg_control/instance_guard.py`, `src/tg_control/security.py`, `src/tg_control/request_audit.py` | `tests/test_retention.py`, `tests/test_retention_pruning.py`, `tests/test_api.py`, `tests/test_operational_config.py` | 30 |
-| Backup / recovery | `src/tg_control/backup.py`, `src/tg_control/backup_probe.py` | `tests/test_backup.py`, `tests/test_backup_catalogs.py` | 13 |
-| Interface contracts (parity matrix) | `src/tg_control/contracts.py`, `docs/contracts/interfaces.json`, `scripts/gen_contracts.py` | `tests/test_contracts.py` | 11 |
-| Cursor pagination | `src/tg_control/pagination.py` | `tests/test_pagination.py` | 10 |
-| Observability / health / diagnostics | `src/tg_control/observability.py`, `src/tg_control/diagnostics.py` | `tests/test_observability.py` | 13 |
-| Authentication throttling | `src/tg_control/throttle.py` | `tests/test_throttle.py` | 6 |
-| Security property boundaries | `src/tg_control/errors.py`, `src/tg_control/pagination.py`, `src/tg_control/observability.py` | `tests/test_property_boundaries.py` | 6 |
-| Migrations / data model | `src/tg_control/db.py`, `alembic/versions` | `tests/test_migrations.py`, `tests/test_postgres_api.py` | 7 |
-| Packaging / deployment config | `Dockerfile`, `compose.yaml`, `pyproject.toml` | `tests/test_operational_config.py` | 4 |
-| Owner notification / monitoring | `src/tg_control/monitoring.py` | `tests/test_session_monitor.py`, `tests/test_monitor_progress.py`, `tests/test_api.py` | 28 |
-| Delivery / evidence | `docs/TRACEABILITY.md`, `docs/ACCEPTANCE.md`, `docs/ROADMAP.md`, `scripts/gen_traceability.py` | `tests/test_traceability.py` | 4 |
+| Container image build, in-container non-root check, container start/recreate/persistence, database-outage readiness | DEPLOYMENT.md | Blocked | No Docker/Podman/Buildah binary, no container socket and `CapEff: 0` in the development sandbox. `scripts/container_smoke.sh` is ready but unexecuted. |
+| Hosted CI run of `.github/workflows/ci.yaml` | RELEASE_PROCESS.md | Not tested | The workflow is committed and statically asserted, but no GitHub Actions run has occurred. |
+| Image/OS vulnerability scan and base-image digest pinning | RELEASE_PROCESS.md | Requires owner action | Needs registry/network access and approval. |
+| Publishing an image, GitHub release, or any deployment | RELEASE_PROCESS.md | Requires owner action | Explicitly out of scope without owner approval. |
+| Native TDLib adapter / live Telegram behavior | COMPLIANCE.md | Blocked | Compliance and owner gates unresolved. |
 
 ## Executed test inventory
 
@@ -183,6 +198,22 @@ Regenerate with `python scripts/gen_traceability.py` after changing tests.
 - `tests/test_core.py::test_owner_session_adapter_errors_are_sanitized_and_fail_closed`
 - `tests/test_core.py::test_reauthentication_state_always_requires_owner_intervention`
 
+### `tests/test_deployment.py`
+
+- `tests/test_deployment.py::test_dockerfile_is_multi_stage_non_root_and_secret_free`
+- `tests/test_deployment.py::test_dockerignore_excludes_secrets_state_and_tooling`
+- `tests/test_deployment.py::test_compose_is_loopback_only_without_docker_socket_or_privileges`
+- `tests/test_deployment.py::test_compose_declares_resource_limits_log_rotation_and_graceful_stop`
+- `tests/test_deployment.py::test_compose_secrets_are_mounted_files_and_environment_has_no_values`
+- `tests/test_deployment.py::test_migrations_are_an_explicit_one_shot_service_not_a_startup_action`
+- `tests/test_deployment.py::test_example_environment_contains_placeholders_only`
+- `tests/test_deployment.py::test_hosted_ci_workflow_is_pinned_least_privilege_and_runs_the_local_gate`
+- `tests/test_deployment.py::test_release_build_script_refuses_to_publish_and_records_provenance`
+
+### `tests/test_disaster_recovery.py`
+
+- `tests/test_disaster_recovery.py::test_complete_synthetic_backup_verify_restore_and_compare`
+
 ### `tests/test_events.py`
 
 - `tests/test_events.py::test_envelope_validation_rejects_malformed_and_oversized_input`
@@ -265,6 +296,9 @@ Regenerate with `python scripts/gen_traceability.py` after changing tests.
 - `tests/test_migrations.py::test_postgres_migration_and_storage`
 - `tests/test_migrations.py::test_incremental_index_migration_preserves_audit_and_old_schema_fails_startup`
 - `tests/test_migrations.py::test_migration_rollback_and_reapply_on_disposable_sqlite`
+- `tests/test_migrations.py::test_partial_schema_is_rejected_even_when_the_revision_matches`
+- `tests/test_migrations.py::test_unknown_revision_is_reported_and_refused`
+- `tests/test_migrations.py::test_migration_policy_is_explicit_and_never_automatic`
 
 ### `tests/test_monitor_progress.py`
 
@@ -370,6 +404,10 @@ Regenerate with `python scripts/gen_traceability.py` after changing tests.
 - `tests/test_retention_pruning.py::test_workflow_run_pruning_never_touches_unfinished_runs`
 - `tests/test_retention_pruning.py::test_pruning_requires_owner_and_bounded_request`
 
+### `tests/test_runtime_lifecycle.py`
+
+- `tests/test_runtime_lifecycle.py::test_host_process_lifecycle_and_failure_modes`
+
 ### `tests/test_session_monitor.py`
 
 - `tests/test_session_monitor.py::test_session_transitions_are_durable_deduplicated_and_account_scoped`
@@ -432,6 +470,8 @@ Regenerate with `python scripts/gen_traceability.py` after changing tests.
 - `tests/test_traceability.py::test_every_listed_test_function_exists`
 - `tests/test_traceability.py::test_every_test_file_is_listed`
 - `tests/test_traceability.py::test_matrix_does_not_claim_live_evidence`
+- `tests/test_traceability.py::test_every_area_row_has_an_evidence_label_and_a_contract`
+- `tests/test_traceability.py::test_unverified_container_and_ci_claims_are_not_made`
 
 ### `tests/test_workflows.py`
 

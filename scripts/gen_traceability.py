@@ -12,6 +12,44 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TESTS = ROOT / "tests"
 
+# Requirement -> contract mapping and the exact evidence level for each area.
+# Allowed labels:
+#   Implemented     code exists, no executed test for this area yet
+#   Locally tested  executed by the local gate in this environment
+#   Container-tested   executed against a built image under a real runtime
+#   Hosted-CI-tested   executed by the hosted workflow recorded in STATUS.md
+#   Not tested      no execution attempted
+#   Blocked         cannot execute here; limitation recorded in STATUS.md
+#   Requires owner action  needs approval (release, deployment, credentials)
+LEVELS: dict[str, tuple[str, str]] = {
+    "Legal / privacy gate": ("COMPLIANCE.md, PRD.md", "Blocked"),
+    "TDLib / accounts (offline boundary)": ("TDLIB_OFFLINE.md", "Locally tested"),
+    "Clients and policy": ("SECURITY.md, POLICY.md", "Locally tested"),
+    "Read / search / history / media": ("API.md", "Locally tested"),
+    "Write / admin / batch": ("API.md", "Locally tested"),
+    "Commands and media pipeline": ("COMMANDS_MEDIA_AI_PLUGINS.md", "Locally tested"),
+    "Events": ("EVENTS_JOBS_WORKFLOWS.md", "Locally tested"),
+    "Durable jobs": ("EVENTS_JOBS_WORKFLOWS.md", "Locally tested"),
+    "Workflows": ("EVENTS_JOBS_WORKFLOWS.md", "Locally tested"),
+    "AI task contract": ("COMMANDS_MEDIA_AI_PLUGINS.md", "Locally tested"),
+    "Plugins": ("COMMANDS_MEDIA_AI_PLUGINS.md", "Locally tested"),
+    "Interfaces (HTTP/CLI/MCP/panel)": ("API.md, MCP.md, CLI.md", "Locally tested"),
+    "Audit / retention / instance guard": ("SECURITY.md, OPERATIONS.md", "Locally tested"),
+    "Backup / recovery": ("BACKUP_RESTORE.md, OPERATIONS.md", "Locally tested"),
+    "Interface contracts (parity matrix)": ("CONTRACT_INDEX.md", "Locally tested"),
+    "Cursor pagination": ("API.md", "Locally tested"),
+    "Observability / health / diagnostics": ("OPERATIONS.md", "Locally tested"),
+    "Authentication throttling": ("SECURITY.md", "Locally tested"),
+    "Security property boundaries": ("SECURITY.md", "Locally tested"),
+    "Migrations / data model": ("DATA_MODEL.md", "Locally tested"),
+    "Packaging / deployment config": ("DEPLOYMENT.md, RELEASE_PROCESS.md", "Locally tested"),
+    "Owner notification / monitoring": ("OPERATIONS.md", "Locally tested"),
+    "Deployment lifecycle (host process)": ("DEPLOYMENT.md", "Locally tested"),
+    "Release metadata and provenance": ("RELEASE_PROCESS.md", "Locally tested"),
+    "Hosted CI pipeline": ("RELEASE_PROCESS.md", "Not tested"),
+    "Delivery / evidence": ("ACCEPTANCE.md, TRACEABILITY.md", "Locally tested"),
+}
+
 AREAS: list[tuple[str, list[str], list[str]]] = [
     ("Legal / privacy gate", ["docs/COMPLIANCE.md", "docs/PRD.md", "docs/SECURITY.md"],
      ["tests/test_operational_config.py"]),
@@ -51,7 +89,8 @@ AREAS: list[tuple[str, list[str], list[str]]] = [
      ["tests/test_retention.py", "tests/test_retention_pruning.py", "tests/test_api.py",
       "tests/test_operational_config.py"]),
     ("Backup / recovery", ["src/tg_control/backup.py", "src/tg_control/backup_probe.py"],
-     ["tests/test_backup.py", "tests/test_backup_catalogs.py"]),
+     ["tests/test_backup.py", "tests/test_backup_catalogs.py",
+      "tests/test_disaster_recovery.py"]),
     (
         "Interface contracts (parity matrix)",
         [
@@ -79,8 +118,20 @@ AREAS: list[tuple[str, list[str], list[str]]] = [
     ),
     ("Migrations / data model", ["src/tg_control/db.py", "alembic/versions"],
      ["tests/test_migrations.py", "tests/test_postgres_api.py"]),
-    ("Packaging / deployment config", ["Dockerfile", "compose.yaml", "pyproject.toml"],
-     ["tests/test_operational_config.py"]),
+    ("Packaging / deployment config",
+     ["Dockerfile", ".dockerignore", "compose.yaml", ".env.example", "pyproject.toml",
+      "requirements.lock"],
+     ["tests/test_operational_config.py", "tests/test_deployment.py"]),
+    ("Deployment lifecycle (host process)",
+     ["scripts/runtime_smoke.py", "src/tg_control/config.py", "src/tg_control/healthcheck.py",
+      "docs/DEPLOYMENT.md"],
+     ["tests/test_runtime_lifecycle.py"]),
+    ("Release metadata and provenance",
+     ["src/tg_control/version.py", "scripts/build_release.py", "docs/RELEASE_PROCESS.md"],
+     ["tests/test_deployment.py"]),
+    ("Hosted CI pipeline", [".github/workflows/ci.yaml", "scripts/ci.sh",
+                            "scripts/container_smoke.sh"],
+     ["tests/test_deployment.py"]),
     ("Owner notification / monitoring", ["src/tg_control/monitoring.py"],
      ["tests/test_session_monitor.py", "tests/test_monitor_progress.py", "tests/test_api.py"]),
     ("Delivery / evidence",
@@ -112,8 +163,15 @@ def main() -> None:
         "",
         "Regenerate with `python scripts/gen_traceability.py` after changing tests.",
         "",
-        "| Area | Implementation | Test files | Executed tests |",
-        "|---|---|---|---|",
+        "Evidence labels: **Implemented** (code only), **Locally tested** (executed by "
+        "the local gate), **Container-tested** (built image under a real runtime), "
+        "**Hosted-CI-tested** (executed by the hosted workflow), **Not tested**, "
+        "**Blocked** (cannot execute here; limitation recorded in STATUS.md), "
+        "**Requires owner action**. Only labels backed by recorded execution appear "
+        "below: no row is Container-tested or Hosted-CI-tested today.",
+        "",
+        "| Area | Contract | Implementation | Test files | Executed tests | Evidence |",
+        "|---|---|---|---|---|---|",
     ]
     appendix = ["", "## Executed test inventory", ""]
     for area, sources, test_files in AREAS:
@@ -122,14 +180,40 @@ def main() -> None:
         if not existing_sources or not existing_tests:
             raise SystemExit(f"area without evidence: {area}")
         count = sum(len(names.get(path, [])) for path in existing_tests)
+        contract, level = LEVELS[area]
         out.append(
-            "| {} | {} | {} | {} |".format(
+            "| {} | {} | {} | {} | {} | {} |".format(
                 area,
+                contract,
                 ", ".join(f"`{src}`" for src in existing_sources),
                 ", ".join(f"`{path}`" for path in existing_tests),
                 count,
+                level,
             )
         )
+    out += [
+        "",
+        "## Executed but not yet evidenced in this environment",
+        "",
+        "| Requirement | Contract | Status | Why |",
+        "|---|---|---|---|",
+        "| Container image build, in-container non-root check, "
+        "container start/recreate/persistence, database-outage readiness | "
+        "DEPLOYMENT.md | Blocked | No Docker/Podman/Buildah binary, no container "
+        "socket and `CapEff: 0` in the development sandbox. "
+        "`scripts/container_smoke.sh` is ready but unexecuted. |",
+        "| Hosted CI run of `.github/workflows/ci.yaml` | RELEASE_PROCESS.md | "
+        "Not tested | The workflow is committed and statically asserted, but no "
+        "GitHub Actions run has occurred. |",
+        "| Image/OS vulnerability scan and base-image digest pinning | "
+        "RELEASE_PROCESS.md | Requires owner action | Needs registry/network "
+        "access and approval. |",
+        "| Publishing an image, GitHub release, or any deployment | "
+        "RELEASE_PROCESS.md | Requires owner action | Explicitly out of scope "
+        "without owner approval. |",
+        "| Native TDLib adapter / live Telegram behavior | COMPLIANCE.md | Blocked | "
+        "Compliance and owner gates unresolved. |",
+    ]
     for path, tests in names.items():
         appendix.append(f"### `{path}`")
         appendix.append("")

@@ -180,7 +180,12 @@ def test_metrics_traces_and_diagnostics_are_owner_only_and_bounded(api, settings
     report = diagnostics.json()
     assert report["read_only"] is True
     assert report["database"]["migration_state"] == "current"
+    assert report["database"]["schema_objects"] == "complete"
     assert {"jobs", "workflows", "events", "plugins", "accounts", "findings"} <= set(report)
+    # Build metadata identifies the running artifact without leaking paths/secrets.
+    build = report["build"]
+    assert build["version"] and build["schema_revision"] == report["database"]["expected_revision"]
+    assert set(build) == {"version", "schema_revision", "source_revision", "build_time"}
     blob = json.dumps(report)
     assert settings.owner_token not in blob
     assert account["id"] not in blob  # no per-account identifiers, only aggregate states

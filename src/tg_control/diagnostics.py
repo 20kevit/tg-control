@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from .adapters.base import AdapterError, SessionUnavailable
@@ -27,6 +27,7 @@ from .db import (
     WorkflowRun,
 )
 from .observability import METRICS, SPANS
+from .version import build_info
 
 STUCK_JOB_SECONDS = 900
 STUCK_WORKFLOW_SECONDS = 900
@@ -78,6 +79,7 @@ class Diagnostics:
             "plugins": self._plugins(findings),
             "accounts": await self._accounts(findings),
             "retention": self._retention(now),
+            "build": build_info(EXPECTED_SCHEMA_REVISION),
             "runtime": self._runtime(findings),
             "findings": findings,
         }
@@ -87,19 +89,14 @@ class Diagnostics:
 
     def _database(self, findings: list[dict[str, str]]) -> dict[str, Any]:
         started = time.perf_counter()
-        try:
-            with self.engine.connect() as connection:
-                connection.execute(text("SELECT 1"))
-                revision = connection.execute(
-                    text("SELECT version_num FROM alembic_version")
-                ).scalar_one_or_none()
-        except SQLAlchemyError:
+        schema = self._schema_state()
+        if schema["state"] == "unavailable":
             findings.append(
                 {"severity": "critical", "code": "database_unavailable", "detail": "db"}
             )
             return {"reachable": False, "migration_state": "unknown", "latency_ms": None}
         latency = round((time.perf_counter() - started) * 1000, 3)
-        matches = revision == EXPECTED_SCHEMA_REVISION
+        matches = schema["state"] == "current" and schema["objects"] == "complete"
         if not matches:
             findings.append(
                 {
@@ -110,11 +107,17 @@ class Diagnostics:
             )
         return {
             "reachable": True,
-            "migration_revision": revision,
+            "migration_revision": schema["revision"] or None,
             "expected_revision": EXPECTED_SCHEMA_REVISION,
-            "migration_state": "current" if matches else "mismatch",
+            "migration_state": schema["state"],
+            "schema_objects": schema["objects"],
             "latency_ms": latency,
         }
+
+    def _schema_state(self) -> dict[str, str]:
+        from .db import schema_state
+
+        return schema_state(self.engine)
 
     def _jobs(self, now: datetime, findings: list[dict[str, str]]) -> dict[str, Any]:
         section: dict[str, Any] = {

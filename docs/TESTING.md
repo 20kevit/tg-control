@@ -103,3 +103,47 @@ The script runs, in order and failing closed: `pip check`, `ruff check src tests
 ```
 
 The optional native TDLib probe is skipped unless `TG_TDLIB_LIBRARY` points at a locally built library. Docker/Compose runtime and remote OAuth interoperability remain unverified and are not claimed.
+
+## Deployment, lifecycle and disaster recovery
+
+`tests/test_deployment.py` (9 tests) statically asserts the deployment contract:
+multi-stage non-root image with hash-locked installs, required health check,
+SIGTERM/graceful-shutdown flags, single worker, no secret in instructions or
+layers, `.dockerignore` coverage, Compose loopback-only publication, no Docker
+socket/privileged/host-network, `cap_drop: ALL`, `no-new-privileges`, read-only
+rootfs with bounded tmpfs, resource limits, log rotation, stop grace periods,
+secrets as files with no credential values in `environment:`, one-shot `migrate`
+profile (never automatic), placeholder-only `.env.example`, pinned-SHA
+least-privilege CI workflow with no publish/deploy path, and a release script
+that refuses `--publish`.
+
+`tests/test_runtime_lifecycle.py` runs `scripts/runtime_smoke.py` against a
+throwaway PostgreSQL server and a real uvicorn subprocess. Ten executed
+scenarios: liveness/readiness/dependency health with owner authentication and
+`401` without it; synthetic API smoke (account, client, policy, send, list) with
+state written to disk; SIGTERM graceful shutdown (`forced_kill: false`,
+`Application shutdown complete`); restart persistence of previously written
+state; full log scan for the owner token, DSN password and encryption key (no
+leaks); and five failure modes — missing configuration, invalid configuration,
+unreachable database (exit 3), schema mismatch (exit 3, no migration attempted)
+and an insecure state directory (refused). This evidences **host-process**
+lifecycle only; container execution is recorded as blocked.
+
+`tests/test_disaster_recovery.py` is the restore drill: seed → back up → verify →
+restore into a separate database and state directory → compare counts, digests
+and selected column values for 15 tables → serve reads from the restored
+instance → prove a second restore into the same target is refused, a single
+tampered byte is rejected without creating a target directory, an
+incompatible schema revision is flagged `compatible: False`, an interrupted
+backup is unverifiable, and an older schema becomes usable only after the
+documented `alembic upgrade head`.
+
+`tests/test_migrations.py` additionally proves the partial-schema gate
+(revision matches, table missing → startup refused, `alembic upgrade head` is a
+no-op, rebuild/restore required), the `unknown` revision classification, and
+that `MIGRATION_POLICY` is `require_current` with no migration call reachable
+from `api.py`.
+
+All of the above run inside `scripts/ci.sh` and therefore inside the hosted CI
+workflow. The container job (`scripts/container_smoke.sh`) cannot run in this
+sandbox and is marked blocked in `STATUS.md`.

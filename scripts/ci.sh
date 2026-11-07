@@ -15,6 +15,14 @@ echo "== static analysis =="
 echo "== interface contract gate =="
 "$PYTHON" scripts/check_interfaces.py
 
+echo "== shell script syntax =="
+for script in scripts/*.sh; do bash -n "$script"; done
+
+echo "== deployment assets present =="
+for asset in Dockerfile .dockerignore compose.yaml .env.example .github/workflows/ci.yaml; do
+  [ -f "$asset" ] || { echo "missing deployment asset: $asset" >&2; exit 1; }
+done
+
 echo "== traceability matrix =="
 "$PYTHON" - <<'PY'
 import re
@@ -27,6 +35,22 @@ if missing:
     raise SystemExit(f"test files missing from docs/TRACEABILITY.md: {missing}")
 print(f"traceability matrix covers {len(actual)} test files")
 PY
+
+echo "== traceability drift =="
+TRACEABILITY_COPY="$(mktemp)"
+cp docs/TRACEABILITY.md "$TRACEABILITY_COPY"
+"$PYTHON" scripts/gen_traceability.py
+if ! diff -q "$TRACEABILITY_COPY" docs/TRACEABILITY.md >/dev/null; then
+  echo "docs/TRACEABILITY.md is stale; commit the regenerated matrix" >&2
+  diff -u "$TRACEABILITY_COPY" docs/TRACEABILITY.md | head -40 >&2
+  rm -f "$TRACEABILITY_COPY"
+  exit 1
+fi
+rm -f "$TRACEABILITY_COPY"
+echo "traceability matrix is current"
+
+echo "== release provenance (dry run) =="
+"$PYTHON" scripts/build_release.py --dry-run >/dev/null
 
 echo "== test suite =="
 "$PYTHON" -m pytest -q

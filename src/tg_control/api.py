@@ -52,6 +52,7 @@ from .db import (
     Setting,
     make_engine,
     make_sessions,
+    schema_state,
 )
 from .diagnostics import Diagnostics
 from .errors import error_envelope
@@ -277,13 +278,34 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     async def lifespan(_app: FastAPI):
         tasks: list[asyncio.Task] = []
         try:
-            # Refuse an uninitialized or old schema rather than auto-migrating at startup.
-            with engine.connect() as connection:
-                revision = connection.execute(
-                    text("SELECT version_num FROM alembic_version")
-                ).scalar_one()
-                if revision != EXPECTED_SCHEMA_REVISION:
-                    raise RuntimeError("database migrations are not up to date")
+            # Migration policy: require_current. The application never migrates
+            # itself; it refuses to serve a schema that does not match this build.
+            # The message names revisions only -- never a DSN, path or credential.
+            schema = schema_state(engine)
+            if schema["state"] != "current" or schema["objects"] != "complete":
+                log_event(
+                    "startup.schema_rejected",
+                    level=logging.CRITICAL,
+                    outcome="failure",
+                    state=schema["state"],
+                    objects=schema["objects"],
+                )
+                if schema["state"] == "missing":
+                    raise RuntimeError(
+                        "database schema is not initialized; run 'alembic upgrade head' "
+                        "as a separate, explicit step"
+                    )
+                if schema["state"] == "unavailable":
+                    raise RuntimeError("database schema could not be inspected; check connectivity")
+                if schema["state"] == "current" and schema["objects"] != "complete":
+                    raise RuntimeError(
+                        "database schema is incomplete (expected tables are missing); "
+                        "run the documented migration or restore from a verified backup"
+                    )
+                raise RuntimeError(
+                    f"schema revision {schema['revision'] or 'unknown'} does not match "
+                    f"this build ({EXPECTED_SCHEMA_REVISION}); run the documented migration"
+                )
             instance_guard.acquire()
             with sessions() as session:
                 stored = session.get(Setting, "retention")
@@ -638,21 +660,18 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     def readiness_checks() -> tuple[bool, dict]:
         checks: dict[str, str] = {}
         ready_state = True
-        try:
-            with engine.connect() as connection:
-                connection.execute(text("SELECT 1"))
-                revision = connection.execute(
-                    text("SELECT version_num FROM alembic_version")
-                ).scalar_one_or_none()
-            checks["database"] = "ok"
-        except SQLAlchemyError:
+        schema = schema_state(engine)
+        if schema["state"] == "unavailable":
             checks["database"] = "unavailable"
             checks["migration"] = "unknown"
+            checks["schema_objects"] = "unknown"
             return False, checks
-        if revision == EXPECTED_SCHEMA_REVISION:
-            checks["migration"] = "current"
-        else:
-            checks["migration"] = "mismatch"
+        checks["database"] = "ok"
+        checks["migration"] = "current" if schema["state"] == "current" else "mismatch"
+        if schema["state"] != "current":
+            ready_state = False
+        checks["schema_objects"] = schema["objects"]
+        if schema["objects"] != "complete":
             ready_state = False
         try:
             checks["instance_guard"] = "held" if instance_guard.check() else "lost"

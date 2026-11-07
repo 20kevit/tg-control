@@ -56,3 +56,46 @@ def test_matrix_does_not_claim_live_evidence():
         "real telegram data used",
     ):
         assert phrase not in text
+
+
+EVIDENCE_LABELS = {
+    "Implemented",
+    "Locally tested",
+    "Container-tested",
+    "Hosted-CI-tested",
+    "Not tested",
+    "Blocked",
+    "Requires owner action",
+}
+
+
+def matrix_rows():
+    rows = []
+    for line in matrix_text().splitlines():
+        if not line.startswith("| ") or line.startswith("|---"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        rows.append(cells)
+    return rows
+
+
+def test_every_area_row_has_an_evidence_label_and_a_contract():
+    rows = [row for row in matrix_rows() if len(row) == 6 and row[0] != "Area"]
+    assert len(rows) >= 20, "area table is missing or truncated"
+    for row in rows:
+        assert row[5] in EVIDENCE_LABELS, f"unknown evidence label {row[5]!r} in {row[0]!r}"
+        assert row[1], f"area {row[0]!r} has no contract reference"
+        assert int(row[4]) > 0, f"area {row[0]!r} claims no executed tests"
+
+
+def test_unverified_container_and_ci_claims_are_not_made():
+    text = matrix_text()
+    rows = [row for row in matrix_rows() if len(row) == 6 and row[0] != "Area"]
+    labels = {row[5] for row in rows}
+    # No container or hosted-CI evidence exists in this environment; the matrix
+    # must say so instead of labelling anything with those levels.
+    assert "Container-tested" not in labels
+    assert "Hosted-CI-tested" not in labels
+    assert "Blocked" in labels and "Not tested" in labels
+    assert "No Docker/Podman/Buildah" in text
+    assert "no GitHub Actions run has occurred" in text

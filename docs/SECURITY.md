@@ -50,3 +50,24 @@ Negative and property-based tests were added for every row. Severity reflects th
 Seeded property-style tests (`tests/test_property_boundaries.py`) additionally assert over a deterministic hostile corpus that error codes are always safe tokens, cursor authentication rejects every single-character edit and foreign scope/key, metric labels/outcomes stay bounded, nested log redaction never emits a sentinel, and throttle invariants hold for random sequences.
 
 Retained limitations: the throttle is process-local (a restart clears counters and a shared source address is throttled for everyone); bearer tokens remain replayable if stolen; there is no OAuth, MFA or distributed rate limiting; the instance guard is cooperative and not fencing; and adversarial tests use synthetic fixtures only.
+
+## Container and deployment hardening (2026-11-07)
+
+| Control | Implementation | Evidence / status |
+|---|---|---|
+| Unprivileged runtime identity | fixed UID/GID 10001, `nologin` shell, no home, `USER 10001:10001` in image and Compose | static assertions `tests/test_deployment.py`; in-container `id -u` check in `scripts/container_smoke.sh` (**blocked**, no daemon) |
+| Capability and privilege reduction | `cap_drop: ALL`, `no-new-privileges`, no Docker socket, no `privileged`, no host network/PID, no published database port | `tests/test_deployment.py`, `tests/test_operational_config.py` |
+| Secret injection | mounted files only (`*_FILE` variables); no secrets in image layers, Compose values, `.env.example` or build args; log scan for owner token, DSN and keys | `tests/test_deployment.py`, `tests/test_runtime_lifecycle.py::...` (log scan executed, no leaks) |
+| Filesystem exposure | read-only rootfs; tmpfs `/tmp` 64 MiB and media staging 256 MiB with `noexec,nosuid`; state volumes `0700` owned by 10001; synthetic state directory refuses group/world access | Compose assertions; runtime harness scenario `insecure_state_dir_refused` |
+| Health/metrics/diagnostics exposure | every health, metrics and diagnostics route requires the owner bearer credential; loopback binding only; no access/body logging | `tests/test_observability.py`, `tests/test_api.py`, runtime harness `health_endpoints` (unauthorized → 401) |
+| Resource exhaustion | memory/CPU/PID limits, bounded tmpfs, log rotation 10 MiB × 3, request-size and pagination caps, in-flight workflow/plugin caps | `tests/test_deployment.py`, `tests/test_operational_config.py`, existing boundary tests |
+| Backup confidentiality | AES-GCM authenticated encryption, `0600` archives, exclusive creation, no plaintext key in archive, read-only verification | `tests/test_backup.py`, `tests/test_disaster_recovery.py` |
+| Fail-closed startup | missing/invalid config, unreachable database, mismatched or partial schema and insecure state directory all refuse to serve | runtime harness (executed) |
+
+Residual deployment risks (not fixed here, do not claim otherwise): the base
+image is pinned by tag, not digest; no image/OS vulnerability scan has been
+executed; the container runtime behavior itself is unverified in this
+environment; `state/` bind mounts rely on the operator chowning them; the
+application still trusts the loopback assumption (no TLS termination, no ingress
+authentication beyond bearer tokens); backups are manual and untested on real
+data volumes.

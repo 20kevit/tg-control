@@ -24,6 +24,66 @@ from sqlalchemy.pool import StaticPool
 # Bumped with every additive migration. Startup refuses anything else; it never
 # auto-migrates. Downgrades require explicit approval and a verified backup.
 EXPECTED_SCHEMA_REVISION = "0007"
+# Migration policy is deliberately the only supported value: the application
+# requires a schema that exactly matches the deployed code. There is no
+# "migrate on start" mode, because an automatic migration would be an
+# uncontrolled, irreversible change performed by a process that may restart
+# repeatedly (see docs/OPERATIONS.md and docs/DEPLOYMENT.md).
+MIGRATION_POLICY = "require_current"
+
+
+def _revision_relation(revision: str) -> str:
+    """Classify a deployed revision relative to this build.
+
+    Revision ids are zero-padded numeric prefixes (``0007``). Anything that does
+    not parse is reported as ``unknown`` rather than guessed: startup treats every
+    non-``current`` state as a hard failure, so an unrecognised revision can never
+    be mistaken for a compatible one.
+    """
+    try:
+        deployed = int(revision)
+        expected = int(EXPECTED_SCHEMA_REVISION)
+    except (TypeError, ValueError):
+        return "unknown"
+    if deployed == expected:
+        return "current"
+    return "behind" if deployed < expected else "ahead"
+
+
+def schema_state(engine: Engine) -> dict[str, str]:
+    """Describe the deployed schema without mutating anything.
+
+    Returns ``state`` (``current``, ``behind``, ``ahead``, ``missing`` or
+    ``unavailable``), the raw ``revision`` when readable, and
+    ``objects`` (``complete``/``incomplete``). A partially applied migration is
+    reported as ``incomplete`` even when the recorded revision matches, so a
+    half-restored or hand-edited schema cannot masquerade as ready.
+    """
+    from sqlalchemy import inspect, text
+    from sqlalchemy.exc import SQLAlchemyError
+
+    try:
+        with engine.connect() as connection:
+            revision = connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one_or_none()
+            names = set(inspect(connection).get_table_names())
+    except SQLAlchemyError:
+        return {"state": "unavailable", "revision": "", "objects": "unknown"}
+    if revision is None:
+        return {"state": "missing", "revision": "", "objects": "incomplete"}
+    if revision == EXPECTED_SCHEMA_REVISION:
+        missing = sorted(set(Base.metadata.tables) - names)
+        return {
+            "state": "current",
+            "revision": str(revision),
+            "objects": "incomplete" if missing else "complete",
+        }
+    return {
+        "state": _revision_relation(str(revision)),
+        "revision": str(revision),
+        "objects": "unknown",
+    }
 
 
 def now() -> datetime:

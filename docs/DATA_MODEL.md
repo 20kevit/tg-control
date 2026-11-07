@@ -37,3 +37,26 @@ Staged media bytes are not stored in PostgreSQL. They live under a private stagi
 ## Retention and pruning (jobs, workflow runs, audit)
 
 Rows are deleted only by explicit owner calls; nothing is pruned by a background timer. `POST /v1/admin/maintenance/prune-jobs` deletes `jobs` rows in a terminal state (`succeeded`, `failed`, `outcome_unknown`, `cancelled`, `expired`) whose `updated_at` is older than the window; `job_runs` rows follow via `ON DELETE CASCADE`. `POST .../prune-workflows` deletes `workflow_runs` whose state is finished (`succeeded`, `partial_failure`, `failed`, `outcome_unknown`) and whose `started_at` is older than the window. A `queued`, `scheduled`, `retry_wait`, `running` or `paused` job and a `running` workflow run are never eligible, because their records are operational state rather than history. Both endpoints accept `dry_run`, return `eligible`/`deleted`, are idempotent, and append an audit row. Deleting history does not and cannot undo an external effect; backups, WAL and filesystem snapshots may retain the rows.
+
+## Schema revision and startup gate
+
+`alembic/versions` is the only schema history; the current head is `0007`
+(`workflows`). `src/tg_control/db.py` declares `EXPECTED_SCHEMA_REVISION = "0007"`
+and `MIGRATION_POLICY = "require_current"`, and exposes a read-only
+`schema_state(engine)` returning:
+
+| Field | Values | Meaning |
+|---|---|---|
+| `state` | `current`, `behind`, `ahead`, `missing`, `unavailable`, `unknown` | relation of the deployed `alembic_version` to this build; `unknown` = revision cannot be ordered (foreign/hand-edited) |
+| `revision` | string (possibly empty) | raw deployed revision |
+| `objects` | `complete`, `incomplete`, `unknown` | whether every table in `Base.metadata` exists (detects a half-applied migration or interrupted restore even when the recorded revision matches) |
+
+The API refuses to start unless `state == "current"` **and**
+`objects == "complete"`, logs `startup.schema_rejected` at CRITICAL, and never
+runs a migration itself. Readiness exposes the same two fields
+(`checks.migration`, `checks.schema_objects`) and owner diagnostics report
+`database.migration_state` and `database.schema_objects`. Consequence: a
+partially applied or restored schema is visible and fail-closed rather than
+serving queries that later fail on a missing table. Recovery is an explicit
+`alembic upgrade head`/`downgrade` (only the tested ones) or a verified restore;
+see `BACKUP_RESTORE.md`.

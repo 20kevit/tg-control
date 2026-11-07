@@ -43,11 +43,14 @@ Every feature matrix row identifies status and links to implementation and tests
 | Events/jobs/workflows | EVENTS_JOBS_WORKFLOWS.md | Event delivery, durable jobs, scheduling, workflow execution |
 | Commands/media/AI/plugins | COMMANDS_MEDIA_AI_PLUGINS.md | Command routing, /save, transfer, AI task adapters, plugin lifecycle |
 | Compliance | COMPLIANCE.md | Telegram terms, AI data-use restrictions, release gates |
+| Deployment | DEPLOYMENT.md, compose.yaml, Dockerfile, .env.example | Images, volumes, health, migration policy, failure modes, blocked checks |
+| Backup/disaster recovery | BACKUP_RESTORE.md, OPERATIONS.md | Archive format, verification, restore drill, guarantees |
+| Release engineering | RELEASE_PROCESS.md, scripts/build_release.py | Version/provenance, artifact naming, compatibility, rollback, approval gates |
 | Delivery/evidence | ROADMAP.md, STATUS.md, ACCEPTANCE.md, TESTING.md, TRACEABILITY.md | Stages, requirement-to-code-to-test traceability, tests, blockers |
 
 When a contract is implemented, update its source document and linked API/help/acceptance material in the same change.
 
-`TRACEABILITY.md` is machine-checked: `tests/test_traceability.py` fails if a listed implementation file or test function disappears, or if a test file is missing from the matrix. Regenerate the test inventory when tests are added or renamed.
+`TRACEABILITY.md` is machine-checked: `tests/test_traceability.py` fails if a listed implementation file or test function disappears, if a test file is missing from the matrix, or if a row's evidence label is outside the allowed vocabulary. Every row carries Requirement → Contract → Implementation → Test → Executed evidence, and each row is labelled **Implemented**, **Locally tested**, **Container-tested**, **Hosted-CI-tested**, **Not tested**, **Blocked** or **Requires owner action**. `Container-tested` and `Hosted-CI-tested` are reserved for rows backed by a real container run or a real hosted-CI run in `STATUS.md`; the current matrix uses neither. Regenerate the matrix with `python scripts/gen_traceability.py` when tests change.
 
 ## Confirmed product scope
 
