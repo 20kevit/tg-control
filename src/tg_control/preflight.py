@@ -198,11 +198,17 @@ def _check_directories(report: Report, min_free_mb: int) -> None:
 
 
 def _check_database(report: Report, settings: Settings) -> None:
-    engine = make_engine(settings.database_url)
+    try:
+        engine = make_engine(settings.database_url)
+    except Exception as exc:
+        _add_failure(report, "database", "database", f"engine unavailable ({type(exc).__name__})")
+        return
     try:
         state = schema_state(engine)
-    except Exception:
-        _add_failure(report, "database", "database", "connection failed")
+    except Exception as exc:
+        # The class name is safe (no host, path or credential) and distinguishes
+        # a driver problem from an unreachable server.
+        _add_failure(report, "database", "database", f"connection failed ({type(exc).__name__})")
         return
     finally:
         engine.dispose()

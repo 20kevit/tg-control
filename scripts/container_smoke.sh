@@ -76,6 +76,13 @@ fi
 log "start database"
 docker compose up -d --wait --wait-timeout 180 db
 
+log "database reachability from the gateway image"
+docker compose run --rm --no-deps --entrypoint python gateway -c '
+import socket
+socket.create_connection(("db", 5432), 10).close()
+print("db reachable")
+' || fail "the gateway image cannot reach db:5432 over the compose network"
+
 log "read-only preflight must refuse to pass before migrations are applied"
 PREFLIGHT_BEFORE="$(docker compose run --rm --no-deps --entrypoint python gateway \
   -m tg_control.preflight 2>&1)" && PREFLIGHT_OK=1 || PREFLIGHT_OK=0
