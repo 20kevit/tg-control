@@ -72,10 +72,15 @@ jobs:
           PYTHON=python scripts/ci.sh 2>&1 | tee pytest.log
 
       - name: Dependency vulnerability audit (network required)
+        # pip-audit is installed with its own dependencies (it is a tool, not a
+        # runtime dependency); the audit resolves requirements.lock, not the env.
         run: |
-          python -m pip install --no-deps pip-audit==2.10.1
           set -o pipefail
-          pip-audit -r requirements.lock --strict | tee pip-audit.log
+          python -m pip install "pip-audit==2.10.1"
+          if ! pip-audit -r requirements.lock --strict 2>&1 | tee pip-audit.log; then
+            echo "::error title=dependency-audit::$(tail -n 3 pip-audit.log | tr '\n' ' ')"
+            exit 1
+          fi
 
       - name: Release provenance (does not build or publish)
         run: python scripts/build_release.py --dry-run > release-provenance.json
