@@ -214,9 +214,24 @@ def test_hosted_ci_workflow_is_pinned_least_privilege_and_runs_the_local_gate():
     assert "upload-artifact" in raw
     assert ".coverage" in raw and "pip-audit.log" in raw
     # Runtime deps come from the hash lock; dev tools are pinned by version and
-    # installed with --no-deps so they cannot upgrade the runtime surface.
+    # installed afterward so they cannot move the runtime surface.
     assert "--require-hashes -r requirements.lock" in raw
     assert "python -m pip check" in raw
+    # The container job runs deployment assertions that import the application,
+    # so it must install the runtime dependencies before pytest runs (otherwise
+    # pytest exits 4 and the job is red for an environment reason).
+    container = yaml.safe_load(raw)["jobs"]["container"]
+    runs = [
+        step.get("run", "") for step in container["steps"] if isinstance(step, dict)
+    ]
+    deployment_run = next(run for run in runs if "tests/test_deployment.py" in run)
+    lines = [line.strip() for line in deployment_run.splitlines()]
+    pytest_line = next(
+        index for index, line in enumerate(lines) if line.startswith("python3 -m pytest")
+    )
+    assert any("requirements.lock" in line for line in lines[:pytest_line]), lines
+    assert any(line.startswith("python3 -m pip install --upgrade pip") for line in lines)
+
     # The gate measures coverage and the workflow audits the lockfile.
     assert 'TG_COVERAGE: "1"' in raw
     assert "pip-audit -r requirements.lock --strict" in raw
