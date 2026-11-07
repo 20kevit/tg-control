@@ -6,6 +6,9 @@ Produces, in the output directory:
     SHA256SUMS                              (artifact digests)
     release-provenance.json                 (version, revision, dirty flag, hashes)
 
+Builds are reproducible: SOURCE_DATE_EPOCH is the source commit time, so two
+builds of the same clean commit yield byte-identical wheels.
+
 `--publish` is deliberately unsupported: publishing to a registry, creating a
 GitHub release or deploying requires separate owner approval. The script exits
 non-zero if asked to publish so an automated caller cannot do it by accident.
@@ -46,16 +49,28 @@ def dirty() -> bool:
     return bool(git("status", "--porcelain"))
 
 
+def source_date_epoch() -> int:
+    """Reproducible-build timestamp: the commit time, not the wall clock.
+
+    `wheel`/`setuptools` honour SOURCE_DATE_EPOCH for archive member timestamps,
+    so two builds of the same commit produce byte-identical artifacts.
+    """
+    raw = git("log", "-1", "--format=%ct")
+    return int(raw) if raw.isdigit() else int(time.time())
+
+
 def build(output: Path) -> list[Path]:
     output.mkdir(parents=True, exist_ok=True)
     wheel_dir = Path(tempfile.mkdtemp(prefix="tg-control-wheel-"))
     # Build isolation downloads the build backend (setuptools/wheel) into a
     # temporary environment. Runtime dependencies are still fixed by
     # requirements.lock; the build backend is not part of the shipped artifact.
+    epoch = source_date_epoch()
     subprocess.run(
         [sys.executable, "-m", "pip", "wheel", ".", "--no-deps", "-w", str(wheel_dir)],
         cwd=ROOT,
         check=True,
+        env={**os.environ, "SOURCE_DATE_EPOCH": str(epoch)},
     )
     artifacts = sorted(wheel_dir.glob("*.whl"))
     if not artifacts:
@@ -86,7 +101,8 @@ def main(argv: list[str] | None = None) -> int:
         "schema_revision": EXPECTED_SCHEMA_REVISION,
         "source_revision": source_revision(),
         "dirty": dirty(),
-        "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "source_date_epoch": source_date_epoch(),
+        "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(source_date_epoch())),
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         "publish": False,
         "artifacts": {},

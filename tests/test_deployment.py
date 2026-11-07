@@ -6,6 +6,7 @@ what the documentation claims. Runtime behavior is covered by
 real container runtime in `docs/DEPLOYMENT.md`.
 """
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -252,3 +253,36 @@ def test_release_build_script_refuses_to_publish_and_records_provenance(tmp_path
             text=True,
             check=True,
         )
+
+
+def test_release_build_is_byte_reproducible(tmp_path):
+    """Two builds of the same source must produce an identical wheel.
+
+    The script pins SOURCE_DATE_EPOCH to the source commit time; without it the
+    wheel embeds wall-clock timestamps and the artifact cannot be compared.
+    """
+    import subprocess
+    import sys
+
+    digests = []
+    for name in ("first", "second"):
+        output = tmp_path / name
+        subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/build_release.py"),
+                "--output-dir",
+                str(output),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        provenance = json.loads((output / "release-provenance.json").read_text())
+        assert provenance["source_date_epoch"] > 0
+        (wheel,) = output.glob("*.whl")
+        digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+        digests.append(digest)
+        assert provenance["artifacts"][wheel.name] == digest
+    assert digests[0] == digests[1], "release build is not reproducible"

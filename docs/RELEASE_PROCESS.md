@@ -12,7 +12,7 @@ explicit owner approval each time.
 | `version` | `src/tg_control/version.py::__version__` (single source of truth) | wheel metadata, `GET /v1/admin/diagnostics` → `build.version`, `release-provenance.json` |
 | `schema_revision` | `src/tg_control/db.py::EXPECTED_SCHEMA_REVISION` (`0007`) | diagnostics, backup manifest, provenance |
 | `source_revision` | `git rev-parse HEAD` at build time, injected as `TG_BUILD_REVISION` | provenance, diagnostics `build.source_revision` |
-| `build_time` | `TG_BUILD_TIME` injected at build time | provenance, diagnostics `build.build_time` |
+| `build_time` | `SOURCE_DATE_EPOCH` = source commit time (reproducible) | provenance `built_at`, diagnostics `build.build_time` |
 | `dirty` | `git status --porcelain` at build time | provenance (a dirty tree must not become a release) |
 
 The runtime never consults Git: an installed wheel reports the version it was
@@ -38,8 +38,12 @@ Reproducibility rules:
 
 - The wheel build uses pip's isolated build environment (setuptools/wheel
   downloaded per build); these are build-time tools, not shipped dependencies.
-  Byte-identical rebuilds are **not** proven — the provenance record pins the
-  source revision and hashes the produced artifact instead.
+- `SOURCE_DATE_EPOCH` is pinned to the source commit time, so two builds of the
+  same commit produce a **byte-identical** wheel. Verified by
+  `test_release_build_is_byte_reproducible` (two builds, equal SHA-256) and
+  recorded in `release-provenance.json` (`source_date_epoch`, per-artifact
+  digest). The build backend version itself is not pinned, so a backend upgrade
+  could still change bytes; the recorded digest is the comparison point.
 
 - `requirements.lock` is hash-pinned and installed with `--require-hashes`; the
   image and CI install from it, not from floating ranges.
