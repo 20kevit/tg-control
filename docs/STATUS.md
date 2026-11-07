@@ -1,14 +1,25 @@
 # Execution status
 
-Updated 2026-11-07. Branch: `arena/663cd534-tg-control`. Repository baseline contained only `README.md` and `docs/ARENA.md`; history at checkout is a single grafted initial commit. Both were read completely.
+Updated 2026-11-07. Branch: arena/663cd534-tg-control.
 
-## Stage 0/1 baseline in progress
+## Current verified snapshot
 
-- Added product, architecture, policy/threat model, data model, API/ADR, compliance/TDLib assessment, roadmap and test strategy. Implemented capabilities: none yet; no login or real data used.
-- Official Telegram terms reviewed. API §1.5 and content licensing AI restrictions are an unresolved release blocker; participant-specific consent is not equivalent to established permission. Native TDLib reference-page fetches returned HTTP 403; indexed official excerpts were accessible. Need actual native feasibility evidence without login.
-- Initial environment: Python 3.11; Docker, PostgreSQL server, and TDLib not found on PATH. Python dependencies not preinstalled. PostgreSQL integration requires a safe isolated local server or container; no production infrastructure touched.
-- Tests: not yet executed; project initially had no implementation or test suite.
-- Next: establish test environment, implement and verify synthetic adapter, then gateway/policy/storage.
+The repository has moved beyond the original docs-only baseline. PR #1 was merged at 07053b104257d617f5af5f56779ea2d4568410f7. The latest recorded full suite passed 218 tests with one optional native TDLib probe skipped; Ruff, JavaScript syntax, pip check, git diff check, and Bandit medium/high checks passed. See the dated evidence below and TESTING.md for exact commands.
+
+Implemented and exercised against synthetic data: Gateway Core; PostgreSQL models/migrations; client credential issue/rotation/revocation; independent account-scoped Read/Write/Admin policies and exclusions; synthetic discovery/search/history/message/media reads; send/edit/delete/forward/media/admin; batch preauthorization, per-item outcomes, idempotency, retry/deadline handling; authenticated HTTP API; MCP stdio and Streamable HTTP; CLI; owner Web Admin; metadata-only audit; request framing/Host/Origin controls; encrypted synthetic state/media retention; backup/restore; session monitoring; and cooperative single-instance protection.
+
+Analytical completion estimates (not repository metrics): approximately 70–75% of the synthetic prototype/foundation and 35–45% of the complete intended gateway product.
+
+## Material open work
+
+1. Native TDLib adapter integration, authorization state machine, update/synchronization loop, session recovery, actual history/search semantics, media transfer, and asynchronous send terminal outcomes. This work may be developed and tested with offline/synthetic harnesses only; no real account login or real data.
+2. Compliance remains unresolved and blocks real Telegram login, synchronization, ingestion, cache, export, forwarding, AI submission, and live demos.
+3. Remote MCP OAuth/discovery/authorization and ChatGPT connector interoperability remain unimplemented/unverified; static bearer auth is not OAuth.
+4. Docker/Compose runtime build/start and image provenance/scanning remain unverified; configuration has static checks only.
+5. Independent security review, production identity/MFA and auth throttling, external heartbeat/alert delivery, automated retention/pruning, key rotation/recovery, production restore drills, and multi-worker support remain open.
+6. Required reusable event, durable-job, workflow, command, media, AI-task, and plugin contracts are now documented; inspect implementation before claiming any of these foundations are complete.
+7. User-facing candidate modules from competitor research are not approved by default. Implement shared foundations; wait for owner confirmation before activating optional candidates.
+8. Release and real-data operation remain blocked by compliance and explicit owner approval.
 
 ## Stages 0–2: baseline and offline adapter (2026-11-06)
 
