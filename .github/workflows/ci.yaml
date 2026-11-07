@@ -118,13 +118,25 @@ jobs:
         run: bash scripts/container_smoke.sh 2>&1 | tee container-smoke.log
 
       - name: Inspect image safety properties
+        # Each assertion reports the observed value as an annotation so a failure
+        # on a hosted runner is diagnosable without downloading logs.
         run: |
+          set -uo pipefail
           IMAGE=tg-control:local
+          docker image ls --digests | tee images.txt
+          if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+            echo "::error title=image-unavailable::expected $IMAGE to exist after the smoke test"
+            exit 1
+          fi
           CONFIGURED_USER="$(docker image inspect -f '{{.Config.User}}' "$IMAGE")"
-          test "$CONFIGURED_USER" = "10001:10001"
+          echo "::notice title=image-user::configured user '${CONFIGURED_USER}'"
+          if [ "$CONFIGURED_USER" != "10001:10001" ]; then
+            echo "::error title=image-user::expected 10001:10001, observed '${CONFIGURED_USER}'"
+            exit 1
+          fi
           docker image inspect -f '{{json .Config.Env}}' "$IMAGE" | tee image-env.json
           if grep -Eqi '(TOKEN|SECRET|PASSWORD|DATABASE_URL)=' image-env.json; then
-            echo "image environment contains secret-like variables" >&2
+            echo "::error title=image-env::image environment contains secret-like variables"
             exit 1
           fi
           docker history --no-trunc "$IMAGE" > image-history.txt
@@ -136,6 +148,7 @@ jobs:
           name: container-evidence
           path: |
             container-smoke.log
+            images.txt
             image-env.json
             image-history.txt
           if-no-files-found: warn
