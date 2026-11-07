@@ -65,12 +65,13 @@ Secrets are files, never environment literals and never Compose values:
 
 ```bash
 python scripts/init_synthetic_secrets.py --directory ./secrets
+# Tighten permissions first: after the chown only UID 10001 can change them.
 chmod 700 secrets
+chmod 400 secrets/*
 # Compose mounts these files into the container as bind mounts, which preserve
 # the host owner and mode. The image runs as UID 10001, so that user must be able
-# to read them: 0600 root-owned files fail with "secret file unreadable".
+# to read them: 0600 files owned by another user fail with "secret file unreadable".
 sudo chown -R 10001:10001 secrets
-chmod 400 secrets/*
 ```
 
 That writes six synthetic files (database URL, owner token, encryption key,

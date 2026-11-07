@@ -220,6 +220,10 @@ def test_hosted_ci_workflow_is_pinned_least_privilege_and_runs_the_local_gate():
     # Compose mounts secrets as bind mounts, so the container user must own them.
     assert 'chown -R "$UID_TARGET:$GID_TARGET" state secrets' in smoke
     assert "chmod 400 secrets/*" in smoke
+    # Permissions must be tightened while the invoking user still owns the files.
+    assert smoke.index("chmod 400 secrets/*") < smoke.index(
+        'chown -R "$UID_TARGET:$GID_TARGET" state secrets'
+    )
     deployment_doc = (ROOT / "docs" / "DEPLOYMENT.md").read_text()
     assert "sudo chown -R 10001:10001 secrets" in deployment_doc
     assert "secret file unreadable" in deployment_doc

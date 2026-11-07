@@ -48,6 +48,10 @@ GID_TARGET="${TG_GID:-10001}"
 # Compose file secrets are bind mounts: the file keeps its host ownership and
 # mode inside the container, so a 0600 root-owned secret is unreadable by the
 # unprivileged container user. Own them by the target UID and make them read-only.
+# Tighten permissions while the invoking user still owns the files; after the
+# chown only the target UID can change them (sudo chmod would be needed).
+chmod 700 secrets
+chmod 400 secrets/*
 if [ "$(stat -c %u state/postgres)" != "$UID_TARGET" ] ||
    [ "$(stat -c %u secrets/owner_token)" != "$UID_TARGET" ]; then
   if command -v sudo >/dev/null 2>&1; then
@@ -57,8 +61,6 @@ if [ "$(stat -c %u state/postgres)" != "$UID_TARGET" ] ||
       fail "state and secrets must be owned by $UID_TARGET:$GID_TARGET (chown them first)"
   fi
 fi
-chmod 700 secrets
-chmod 400 secrets/*
 
 TOKEN="$(cat secrets/owner_token)"
 [ -n "$TOKEN" ] || fail "owner token file is empty"
