@@ -197,6 +197,16 @@ def _check_directories(report: Report, min_free_mb: int) -> None:
             report.add(variable, "pass", f"private, writable, {free_mb} MiB free")
 
 
+def _exception_chain(exc: BaseException) -> str:
+    """Class names only: enough to diagnose a failure, no host or credential."""
+    names: list[str] = []
+    current: BaseException | None = exc
+    while current is not None and len(names) < 4:
+        names.append(type(current).__name__)
+        current = current.__cause__ or current.__context__
+    return "<-".join(names)
+
+
 def _check_database(report: Report, settings: Settings) -> None:
     try:
         engine = make_engine(settings.database_url)
@@ -206,14 +216,15 @@ def _check_database(report: Report, settings: Settings) -> None:
     try:
         state = schema_state(engine)
     except Exception as exc:
-        # The class name is safe (no host, path or credential) and distinguishes
-        # a driver problem from an unreachable server.
-        _add_failure(report, "database", "database", f"connection failed ({type(exc).__name__})")
+        # The class chain is safe (no host, path or credential) and distinguishes
+        # a driver problem from an unreachable server or a rejected login.
+        _add_failure(report, "database", "database", f"connection failed ({_exception_chain(exc)})")
         return
     finally:
         engine.dispose()
     if state["state"] == "unavailable":
-        _add_failure(report, "database", "database", "connection failed")
+        chain = _probe_chain(settings)
+        _add_failure(report, "database", "database", f"connection failed ({chain})")
         return
     report.add("database", "pass", "reachable")
     if state["state"] == "current" and state["objects"] == "complete":
@@ -223,6 +234,21 @@ def _check_database(report: Report, settings: Settings) -> None:
     if state["state"] == "current":
         detail = "incomplete"
     _add_failure(report, "schema", "database", detail)
+
+
+def _probe_chain(settings: Settings) -> str:
+    """Re-run one trivial query to learn why ``schema_state`` saw no connection."""
+    from sqlalchemy import text
+
+    engine = make_engine(settings.database_url)
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception as exc:
+        return _exception_chain(exc)
+    finally:
+        engine.dispose()
+    return "unknown"
 
 
 def run(min_free_mb: int = MIN_FREE_MB) -> Report:
