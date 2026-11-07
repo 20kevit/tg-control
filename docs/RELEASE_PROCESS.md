@@ -36,6 +36,11 @@ Outputs:
 
 Reproducibility rules:
 
+- The wheel build uses pip's isolated build environment (setuptools/wheel
+  downloaded per build); these are build-time tools, not shipped dependencies.
+  Byte-identical rebuilds are **not** proven — the provenance record pins the
+  source revision and hashes the produced artifact instead.
+
 - `requirements.lock` is hash-pinned and installed with `--require-hashes`; the
   image and CI install from it, not from floating ranges.
 - The container image is `python:3.11-slim-bookworm` (patch tag). Digest pinning

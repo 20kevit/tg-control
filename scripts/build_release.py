@@ -2,7 +2,7 @@
 """Build a local release candidate without publishing anything.
 
 Produces, in the output directory:
-    tg_control-<version>-py3-none-any.whl   (and an sdist)
+    tg_control-<version>-py3-none-any.whl
     SHA256SUMS                              (artifact digests)
     release-provenance.json                 (version, revision, dirty flag, hashes)
 
@@ -20,6 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -47,27 +48,21 @@ def dirty() -> bool:
 
 def build(output: Path) -> list[Path]:
     output.mkdir(parents=True, exist_ok=True)
-    wheel_dir = output / "wheels"
+    wheel_dir = Path(tempfile.mkdtemp(prefix="tg-control-wheel-"))
+    # Build isolation downloads the build backend (setuptools/wheel) into a
+    # temporary environment. Runtime dependencies are still fixed by
+    # requirements.lock; the build backend is not part of the shipped artifact.
     subprocess.run(
-        [sys.executable, "-m", "pip", "wheel", ".", "--no-deps", "--no-build-isolation",
-         "-w", str(wheel_dir)],
+        [sys.executable, "-m", "pip", "wheel", ".", "--no-deps", "-w", str(wheel_dir)],
         cwd=ROOT,
         check=True,
-    )
-    sdist_dir = output / "sdist"
-    sdist_dir.mkdir()
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--no-deps", "--no-build-isolation",
-         "--target", str(sdist_dir / "installed"), "."],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
     )
     artifacts = sorted(wheel_dir.glob("*.whl"))
     if not artifacts:
         raise SystemExit("no wheel produced")
     for artifact in artifacts:
         shutil.copy2(artifact, output / artifact.name)
+    shutil.rmtree(wheel_dir, ignore_errors=True)
     return sorted(output.glob("*.whl"))
 
 
