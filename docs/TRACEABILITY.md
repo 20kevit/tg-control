@@ -28,14 +28,14 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 | Authentication throttling | SECURITY.md | `src/tg_control/throttle.py` | `tests/test_throttle.py` | 6 | Locally tested |
 | Security property boundaries | SECURITY.md | `src/tg_control/errors.py`, `src/tg_control/pagination.py`, `src/tg_control/observability.py` | `tests/test_property_boundaries.py` | 6 | Locally tested |
 | Migrations / data model | DATA_MODEL.md | `src/tg_control/db.py`, `alembic/versions` | `tests/test_migrations.py`, `tests/test_postgres_api.py` | 10 | Locally tested |
-| Packaging / deployment config | DEPLOYMENT.md, RELEASE_PROCESS.md | `Dockerfile`, `.dockerignore`, `compose.yaml`, `.env.example`, `pyproject.toml`, `requirements.lock` | `tests/test_operational_config.py`, `tests/test_deployment.py` | 14 | Locally tested |
+| Packaging / deployment config | DEPLOYMENT.md, RELEASE_PROCESS.md | `Dockerfile`, `.dockerignore`, `compose.yaml`, `.env.example`, `pyproject.toml`, `requirements.lock` | `tests/test_operational_config.py`, `tests/test_deployment.py` | 15 | Locally tested |
 | Deployment lifecycle (host process) | DEPLOYMENT.md | `scripts/runtime_smoke.py`, `src/tg_control/config.py`, `src/tg_control/healthcheck.py`, `docs/DEPLOYMENT.md` | `tests/test_runtime_lifecycle.py` | 1 | Locally tested |
 | Deployment preflight | DEPLOYMENT.md | `src/tg_control/preflight.py`, `src/tg_control/config.py`, `src/tg_control/db.py` | `tests/test_preflight.py` | 7 | Locally tested |
 | Adapter conformance | PRD.md, SECURITY.md | `src/tg_control/adapters/base.py`, `src/tg_control/adapters/synthetic.py`, `src/tg_control/adapters/tdlib_boundary.py` | `tests/test_adapter_conformance.py`, `tests/test_adapter.py` | 15 | Locally tested |
 | Scheduled retention | OPERATIONS.md, API.md | `src/tg_control/retention.py`, `src/tg_control/api.py` | `tests/test_retention_scheduling.py`, `tests/test_retention_pruning.py` | 9 | Locally tested |
-| Dependency audit and coverage | TESTING.md, RELEASE_PROCESS.md | `scripts/ci.sh`, `requirements.lock`, `pyproject.toml` | `tests/test_deployment.py` | 10 | Locally tested |
-| Release metadata and provenance | RELEASE_PROCESS.md | `src/tg_control/version.py`, `scripts/build_release.py`, `docs/RELEASE_PROCESS.md` | `tests/test_deployment.py` | 10 | Locally tested |
-| Hosted CI pipeline | RELEASE_PROCESS.md | `.github/workflows/ci.yaml`, `scripts/ci.sh`, `scripts/container_smoke.sh` | `tests/test_deployment.py` | 10 | Not tested |
+| Dependency audit and coverage | TESTING.md, RELEASE_PROCESS.md | `scripts/ci.sh`, `requirements.lock`, `pyproject.toml` | `tests/test_deployment.py` | 11 | Locally tested |
+| Release metadata and provenance | RELEASE_PROCESS.md | `src/tg_control/version.py`, `scripts/build_release.py`, `docs/RELEASE_PROCESS.md` | `tests/test_deployment.py` | 11 | Locally tested |
+| Hosted CI pipeline | RELEASE_PROCESS.md | `.github/workflows/ci.yaml`, `scripts/ci.sh`, `scripts/container_smoke.sh` | `tests/test_deployment.py` | 11 | Not tested |
 | Owner notification / monitoring | OPERATIONS.md | `src/tg_control/monitoring.py` | `tests/test_session_monitor.py`, `tests/test_monitor_progress.py`, `tests/test_api.py` | 28 | Locally tested |
 | Delivery / evidence | ACCEPTANCE.md, TRACEABILITY.md | `docs/TRACEABILITY.md`, `docs/ACCEPTANCE.md`, `docs/ROADMAP.md`, `scripts/gen_traceability.py` | `tests/test_traceability.py` | 6 | Locally tested |
 
@@ -226,6 +226,7 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 - `tests/test_deployment.py::test_hosted_ci_workflow_is_pinned_least_privilege_and_runs_the_local_gate`
 - `tests/test_deployment.py::test_release_build_script_refuses_to_publish_and_records_provenance`
 - `tests/test_deployment.py::test_release_build_is_byte_reproducible`
+- `tests/test_deployment.py::test_dockerfile_installs_the_pinned_build_backends_before_building`
 
 ### `tests/test_disaster_recovery.py`
 

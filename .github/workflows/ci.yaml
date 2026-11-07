@@ -69,7 +69,10 @@ jobs:
         # failing suite would still look green.
         run: |
           set -o pipefail
-          PYTHON=python scripts/ci.sh 2>&1 | tee pytest.log
+          if ! PYTHON=python scripts/ci.sh 2>&1 | tee pytest.log; then
+            echo "::error title=local-gate::$(grep -E 'FAILED|ERROR|error:|Traceback' pytest.log | tail -n 3 | tr '\n' ' ')"
+            exit 1
+          fi
 
       - name: Dependency vulnerability audit (network required)
         # pip-audit is installed with its own dependencies (it is a tool, not a
