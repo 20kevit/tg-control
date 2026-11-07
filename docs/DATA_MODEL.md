@@ -13,3 +13,11 @@ The cache is process-local only, limited by entry count and approximately 16 MiB
 ## Session-monitor metadata
 
 The `session_monitor_v1` setting stores the most recently observed normalized state by enabled account UUID, and `session_transition` audit rows record state changes in the same database transaction. This contains no message content, credentials, phone numbers or upstream error strings. Unchanged states remain deduplicated across process restarts; audit retention and backups apply to transition rows. The additive `0004` migration indexes `(event, id)` for owner-filtered history. Monitor task progress, counters and timestamps are process-local and reset at restart; they are not a durable heartbeat. Multiple gateway workers remain unsupported.
+
+## Event inbox and subscriptions (migration `0005`)
+
+`events` is the durable normalized inbox: an auto-incrementing per-gateway `seq`, immutable UUID `id`, account UUID, namespaced `event_type`, `schema_version`, source, `occurred_at`/`observed_at`, aggregate identifiers, optional `chat_id`, correlation/causation IDs, a schema-validated JSON `payload` (≤ 8 KiB, allowlisted keys per type) and a unique `fingerprint` for deduplication. Raw TDLib objects are never stored. `event_subscriptions` holds the client/account filters, pause flag, `max_inflight` and the monotonic `cursor_seq`. `event_attempts` bounds per-subscription delivery attempts; `event_dead_letters` records poison events with a sanitized reason. Event payload retention is separate from audit and media retention and is pruned only by the owner endpoint.
+
+## Jobs and execution history (migration `0006`)
+
+`jobs` stores the registered `kind`, versioned strict `input` (≤ 4 KiB, no credentials or message bodies), creator `client_id`/`credential_id`, account, schedule (`once` with an aware `run_at`, or `daily_local` with IANA zone and local time), misfire policy/grace, state, attempts, deadline, lease owner/expiry, pause and cancel flags, last sanitized error, bounded result and unique idempotency key. `job_runs` keeps one bounded row per attempt (state, worker, timings, error code, unknown-outcome flag). Neither table stores message text from previous runs.

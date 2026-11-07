@@ -1,6 +1,6 @@
 # Execution status
 
-Updated 2026-11-07. Branch: arena/663cd534-tg-control.
+Updated 2026-11-07. Branch: arena/49228e17-tg-control. Earlier dated entries below are historical evidence, not current claims.
 
 ## Current verified snapshot
 
@@ -10,6 +10,16 @@ Implemented and exercised against synthetic data: Gateway Core; PostgreSQL model
 
 Analytical completion estimates (not repository metrics): approximately 70–75% of the synthetic prototype/foundation and 35–45% of the complete intended gateway product.
 
+
+## Durable events and jobs (2026-11-07)
+
+- Added the normalized event inbox with strict envelope/schema/payload validation, a documented deterministic fingerprint (or stable upstream identity) for deduplication, per-client/account subscriptions, Read rechecks before delivery, owner-only operational events, monotonic cursors with ack/nack, typed `cursor_expired` handling, bounded attempts with per-subscription dead letters and owner replay, backpressure isolation and owner-triggered retention pruning. Added `EventInput`/`Update` boundaries so adapter updates are normalized before persistence; the synthetic adapter now buffers and drains bounded per-account updates after mutations.
+- Added durable jobs: explicit validated state machine, bounded per-attempt history, conditional-claim leases, restart lease recovery (unknown for mutations, retry for read-only kinds), IANA-zone daily schedules with spring-forward skip and fall-back single-run, bounded misfire policies, pause/resume/cancel, deadline expiry, definite-failure-only retry and terminal unknown outcomes. The first-party `telegram.send` kind executes through Gateway Core with the job's credential and the job ID as the mutation idempotency key, so revocation, policy changes and duplicate execution are handled by existing Core guarantees.
+- Exposed client and owner HTTP routes for both domains plus in-process ingestion (10 s) and scheduler (15 s) tasks guarded by the instance guard; startup resolves expired leases. `GET/PUT /v1/admin/settings` gained `event_retention_days`.
+- Files: `src/tg_control/{events,jobs,job_kinds}.py`, `src/tg_control/{db,api,core}.py`, `src/tg_control/adapters/{base,synthetic}.py`, `alembic/versions/{0005_events,0006_durable_jobs}.py`, `tests/{test_events,test_jobs,test_events_jobs_api}.py`, `docs/{ADR,API,DATA_MODEL,EVENTS_JOBS_WORKFLOWS,ACCEPTANCE,TESTING,ROADMAP}.md`. Additive migrations only; no existing database was migrated.
+- Verification: `.venv/bin/pytest -q` — **264 passed, one optional native probe skipped**, one benign `XDG_RUNTIME_DIR` warning; `ruff check src tests alembic scripts` passed. Tests use disposable SQLite databases, an injected clock and synthetic fixtures only.
+- Limitations: pull-based delivery only (no webhook/SSE/WebSocket transport, no OAuth); one scheduler process (leases protect restarts, not multi-worker deployment); dead-letter replay is owner-driven; no owner UI for jobs/events; workflows, commands/media, AI tasks and plugins remain unimplemented; real Telegram data, live AI processing, deployment, independent security review and the legal gate remain open and blocked.
+
 ## Material open work
 
 1. Native TDLib adapter integration, authorization state machine, update/synchronization loop, session recovery, actual history/search semantics, media transfer, and asynchronous send terminal outcomes. This work may be developed and tested with offline/synthetic harnesses only; no real account login or real data.
@@ -17,7 +27,7 @@ Analytical completion estimates (not repository metrics): approximately 70–75%
 3. Remote MCP OAuth/discovery/authorization and ChatGPT connector interoperability remain unimplemented/unverified; static bearer auth is not OAuth.
 4. Docker/Compose runtime build/start and image provenance/scanning remain unverified; configuration has static checks only.
 5. Independent security review, production identity/MFA and auth throttling, external heartbeat/alert delivery, automated retention/pruning, key rotation/recovery, production restore drills, and multi-worker support remain open.
-6. Required reusable event, durable-job, workflow, command, media, AI-task, and plugin contracts are now documented; inspect implementation before claiming any of these foundations are complete.
+6. Events and durable jobs are implemented and tested synthetically (see the 2026-11-07 entry). Workflow, command/`/save`, media, AI-task and plugin foundations remain unimplemented; the contracts exist and must not be reported as complete.
 7. User-facing candidate modules from competitor research are not approved by default. Implement shared foundations; wait for owner confirmation before activating optional candidates.
 8. Release and real-data operation remain blocked by compliance and explicit owner approval.
 

@@ -28,6 +28,24 @@ class SessionStatus:
     intervention_required: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class Update:
+    """A normalized adapter update. Raw SDK objects never cross this boundary.
+
+    ``upstream_id`` is a stable per-account identity for deduplication when the
+    upstream source provides one. Payloads carry only the minimum schema fields.
+    """
+
+    event_type: str
+    account_id: str
+    chat_id: str | None
+    payload: dict[str, Any]
+    upstream_id: str | None = None
+    occurred_at: float | None = None
+    aggregate_type: str | None = None
+    aggregate_id: str | None = None
+
+
 ADAPTER_ERROR_CODES = frozenset(
     {
         "not_found",
@@ -86,6 +104,17 @@ class SessionUnavailable(AdapterError):
             raise ValueError("invalid session intervention flag")
         super().__init__("reauth_required" if intervention_required else "disconnected")
         self.intervention_required = intervention_required
+
+
+class UpdateSource(Protocol):
+    """Optional adapter capability: normalized, account-scoped update intake.
+
+    An adapter that cannot expose updates must raise ``AdapterError`` rather than
+    return fabricated data. Draining is non-destructive only for the caller's
+    copy; implementations own their bounded buffer and ordering caveats.
+    """
+
+    async def drain_updates(self, account_id: str, limit: int = 100) -> list[Update]: ...
 
 
 class TelegramAdapter(Protocol):

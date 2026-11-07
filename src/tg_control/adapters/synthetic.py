@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import copy
+import hashlib
 import time
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
-from .base import AdapterError, Chat, ChatKind, SessionStatus, SessionUnavailable
+from .base import AdapterError, Chat, ChatKind, SessionStatus, SessionUnavailable, Update
 from .synthetic_store import SyntheticStore
 
 
@@ -99,6 +100,10 @@ class SyntheticAdapter:
         self._store = store
         self._clock = clock
         self._media_retention_days: int | None = 30
+        # Bounded per-account update buffer. Overflow drops the oldest entry and is
+        # counted; consumers must resume from durable storage, not from this queue.
+        self._updates: dict[str, deque[Update]] = defaultdict(deque)
+        self._update_drops: dict[str, int] = defaultdict(int)
 
     async def close(self) -> None:
         if self._store:
@@ -149,6 +154,73 @@ class SyntheticAdapter:
             if count:
                 self._commit(account_id, account)
             return count
+
+    UPDATE_BUFFER_LIMIT = 1000
+    UPDATE_TEXT_LIMIT = 4096
+
+    def _emit(
+        self,
+        account_id: str,
+        event_type: str,
+        chat_id: str | None,
+        payload: dict[str, Any],
+        upstream_id: str,
+    ) -> None:
+        buffer = self._updates[account_id]
+        if len(buffer) >= self.UPDATE_BUFFER_LIMIT:
+            buffer.popleft()
+            self._update_drops[account_id] += 1
+        occurred = self._clock()
+        buffer.append(
+            Update(
+                event_type=event_type,
+                account_id=account_id,
+                chat_id=chat_id,
+                payload=payload,
+                upstream_id=upstream_id,
+                occurred_at=occurred,
+            )
+        )
+
+    def _emit_message(
+        self,
+        account_id: str,
+        event_type: str,
+        chat_id: str,
+        message_id: int,
+        text: str | None,
+        media: dict[str, Any] | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {"message_id": message_id}
+        if text is not None:
+            payload["text"] = text[: self.UPDATE_TEXT_LIMIT]
+            payload["text_truncated"] = len(text) > self.UPDATE_TEXT_LIMIT
+        if event_type == "message.new":
+            payload["has_media"] = media is not None
+            if media is not None:
+                payload["media_kind"] = str(media.get("content_type"))[:127]
+            payload["sender_ref"] = "self"
+        self._emit(account_id, event_type, chat_id, payload, f"{chat_id}:{message_id}:{event_type}")
+
+    def inject_update(self, update: Update) -> None:
+        """Test-only fixture hook; never exposed through a client interface."""
+        if update.account_id not in self._accounts and self._store is None:
+            self._account(update.account_id)
+        self._emit(
+            update.account_id,
+            update.event_type,
+            update.chat_id,
+            dict(update.payload),
+            update.upstream_id or "fixture",
+        )
+
+    async def drain_updates(self, account_id: str, limit: int = 100) -> list[Update]:
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValueError("invalid update drain limit")
+        async with self._lock:
+            self._check(account_id, "drain_updates")
+            buffer = self._updates[account_id]
+            return [buffer.popleft() for _ in range(min(limit, len(buffer)))]
 
     def inject_fault(self, account_id: str, operation: str, error: Exception) -> None:
         """Test-only hook, never exposed through any client interface."""
@@ -261,19 +333,34 @@ class SyntheticAdapter:
                 account.next_id += 1
                 messages.append({"id": new_id, "chat_id": chat_id, "text": text, "media": media})
                 self._commit(account_id, account)
+                self._emit_message(account_id, "message.new", chat_id, new_id, text, media)
                 return {"message_id": new_id}
             if operation == "edit":
                 find(params["message_id"])["text"] = params["text"]
                 self._commit(account_id, account)
+                self._emit_message(
+                    account_id, "message.edited", chat_id, params["message_id"], params["text"]
+                )
                 return {"message_id": params["message_id"]}
             if operation == "delete":
                 messages.remove(find(params["message_id"]))
                 self._commit(account_id, account)
+                self._emit_message(
+                    account_id, "message.deleted", chat_id, params["message_id"], None
+                )
                 return {"message_id": params["message_id"]}
             if operation == "set_title":
                 old = account.chats[chat_id]
                 account.chats[chat_id] = Chat(old.id, old.kind, params["title"])
                 self._commit(account_id, account)
+                self._emit(
+                    account_id,
+                    "chat.updated",
+                    chat_id,
+                    {"title": params["title"][:256]},
+                    f"{chat_id}:title:"
+                    + hashlib.sha256(params["title"].encode("utf-8")).hexdigest()[:32],
+                )
                 return {"updated": True}
             if operation == "set_member_status":
                 account.members.setdefault(chat_id, {})[params["member_id"]] = params["status"]

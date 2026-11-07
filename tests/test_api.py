@@ -213,7 +213,12 @@ def test_settings_session_health_and_owner_authority(api, settings):
         == 401
     )
     assert api.get("/v1/admin/settings", headers=owner).json()["audit_retention_days"] == 90
-    new = {"audit_retention_days": 30, "cache_ttl_seconds": 60, "media_retention_days": None}
+    new = {
+        "audit_retention_days": 30,
+        "cache_ttl_seconds": 60,
+        "media_retention_days": None,
+        "event_retention_days": 14,
+    }
     assert api.put("/v1/admin/settings", headers=owner, json=new).json() == new
     assert api.get("/v1/admin/settings", headers=owner).json() == new
     assert (

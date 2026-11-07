@@ -2,6 +2,24 @@
 
 Status: required engineering foundation. Implementation remains synthetic-only while the compliance gate is unresolved. This contract defines reusable infrastructure, not permission to process real Telegram data.
 
+## Implementation status (2026-11-07)
+
+| Contract area | State | Evidence |
+|---|---|---|
+| 1.1 Envelope, schema versions, payload limits | Implemented | `src/tg_control/events.py` (`EventInput`, `EVENT_PAYLOAD_KEYS`); `tests/test_events.py::test_envelope_validation_rejects_malformed_and_oversized_input` |
+| 1.2 Durable ingestion, dedup, retention | Implemented | `EventService.ingest`, unique `fingerprint`; `test_ingestion_is_durable_and_deduplicated`, `test_paused_subscription_and_pruned_cursor` |
+| 1.3 Subscriptions, filters, cursors, ack, replay, dead letters, backpressure | Implemented (pull transport only) | `EventService.pull/ack/nack/replay_dead_letter`; `test_cursor_persistence_ack_monotonicity_and_conflict`, `test_nack_retries_then_dead_letters_with_controlled_replay`, `test_backpressure_isolates_a_slow_consumer` |
+| 1.3 Authorization recheck before delivery; operational events owner-only | Implemented | `EventService._deliverable`, `test_pull_filters_and_rechecks_read_scope_before_delivery`, `test_operational_events_are_never_delivered_to_clients` |
+| 1.4 Public event API and external transports (webhooks/SSE/WS) | Not implemented (deliberate) | HTTP pull/ack API exists; no push transport is shipped without a separate transport/security review |
+| 2.1 Job record fields and bounded history | Implemented | `src/tg_control/db.py` `Job`/`JobRun`; migration `0006` |
+| 2.2 State machine and terminal semantics | Implemented | `jobs.validate_transition`, `Jobs._finalize`; `tests/test_jobs.py::test_state_machine_rejects_invalid_transitions`, `test_unknown_outcome_is_terminal_and_never_retried` |
+| 2.3 Scheduling, DST, misfire, pause/resume/cancel, leases, recovery, graceful shutdown | Implemented | `next_local_occurrence`, `skip_misfired`, `claim`, `recover_expired_leases`, `Jobs.close`; corresponding tests in `tests/test_jobs.py` |
+| 2.3 Permission revalidation immediately before execution | Implemented for the registered `telegram.send` kind (Gateway Core recheck) | `src/tg_control/job_kinds.py`; `test_delayed_send_denied_when_policy_revoked_before_execution`, `test_delayed_send_blocked_when_credential_revoked` |
+| 2.4 Definite-failure-only retry, idempotency, unknown-outcome protection | Implemented | `Jobs._finalize`, job-ID idempotency key in `job_kinds.py`; `test_retry_only_for_definite_failures`, `test_gateway_execution_key_prevents_duplicate_delayed_effect` |
+| 3 Workflow engine | Not implemented | See `ROADMAP.md`; no workflow code or schema exists yet |
+
+Limits: single-process scheduler; ordering/delivery are at-least-once; a client that never acks retains its backlog until event retention removes it (`cursor_expired` then reports the earliest resumable cursor); dead-letter replay is owner-driven; there is no external scheduler HA or webhook transport.
+
 ## 1. Event model
 
 ### 1.1 Normalized envelope

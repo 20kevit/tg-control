@@ -29,8 +29,20 @@ from .adapters.synthetic_store import SyntheticStore
 from .auth import Principal, authenticate, revoke_client, rotate_credential, verify_owner
 from .config import Settings
 from .core import BatchRejected, Gateway
-from .db import Account, AuditEvent, Client, Grant, Setting, make_engine, make_sessions
+from .db import (
+    EXPECTED_SCHEMA_REVISION,
+    Account,
+    AuditEvent,
+    Client,
+    Grant,
+    Setting,
+    make_engine,
+    make_sessions,
+)
+from .events import EventError, EventService, SubscriptionInput
 from .instance_guard import InstanceGuard, InstanceGuardBoundary
+from .job_kinds import register_first_party_kinds
+from .jobs import JobError, Jobs, Schedule
 from .mcp_server import RemoteBackend, create_mcp_server
 from .monitoring import SessionMonitorProgress
 from .policy import GrantInput
@@ -39,6 +51,8 @@ from .schemas import Batch
 from .security import SecurityBoundary
 
 SESSION_MONITOR_INTERVAL_SECONDS = 60
+EVENT_INGEST_INTERVAL_SECONDS = 10
+SCHEDULER_INTERVAL_SECONDS = 15
 
 
 class StrictModel(BaseModel):
@@ -68,9 +82,36 @@ class ClientCreate(StrictModel):
 
 class RetentionSettings(StrictModel):
     audit_retention_days: Annotated[int, Field(strict=True, ge=1, le=36500)] = 90
+    event_retention_days: Annotated[int, Field(strict=True, ge=1, le=36500)] = 30
     # A zero TTL disables the in-memory message cache.
     cache_ttl_seconds: Annotated[int, Field(strict=True, ge=0, le=31_536_000)] = 3600
     media_retention_days: Annotated[int, Field(strict=True, ge=1, le=36500)] | None = 30
+
+
+class EventPullRequest(StrictModel):
+    limit: Annotated[int, Field(strict=True, ge=1, le=100)] = 50
+
+
+class EventAckRequest(StrictModel):
+    sequence: Annotated[int, Field(strict=True, ge=0)]
+
+
+class EventNackRequest(StrictModel):
+    event_id: Annotated[str, Field(min_length=36, max_length=36)]
+    reason: Annotated[str, Field(max_length=32)] | None = None
+
+
+class EventPauseRequest(StrictModel):
+    paused: bool
+
+
+class JobCreateRequest(StrictModel):
+    kind: Annotated[str, Field(min_length=1, max_length=48)]
+    input: dict = Field(default_factory=dict)
+    schedule: Schedule | None = None
+    idempotency_key: UUID | None = None
+    deadline_seconds: Annotated[int, Field(strict=True, ge=30, le=86400)] = 3600
+    max_attempts: Annotated[int, Field(strict=True, ge=1, le=10)] = 3
 
 
 def _request_id() -> str:
@@ -97,6 +138,14 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     gateway = Gateway(
         sessions, selected_adapter, timeout_seconds=settings.operation_timeout_seconds
     )
+    events = EventService(
+        sessions, selected_adapter, timeout_seconds=settings.operation_timeout_seconds
+    )
+    jobs = Jobs(
+        sessions,
+        handler_timeout_seconds=settings.operation_timeout_seconds,
+    )
+    register_first_party_kinds(jobs, gateway)
     instance_guard = InstanceGuard(engine)
     fernet = Fernet(settings.encryption_key)
     monitor_progress = SessionMonitorProgress()
@@ -119,7 +168,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                 revision = connection.execute(
                     text("SELECT version_num FROM alembic_version")
                 ).scalar_one()
-                if revision != "0004":
+                if revision != EXPECTED_SCHEMA_REVISION:
                     raise RuntimeError("database migrations are not up to date")
             instance_guard.acquire()
             with sessions() as session:
@@ -129,6 +178,8 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                 retention.cache_ttl_seconds, retention.media_retention_days
             )
             await gateway.maintain_media()
+            # Resolve any work whose previous owner died before the scheduler starts.
+            jobs.recover_expired_leases()
 
             async def maintenance() -> None:
                 ticks = 0
@@ -168,11 +219,43 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                         monitor_progress.finish(success=True)
                     await asyncio.sleep(SESSION_MONITOR_INTERVAL_SECONDS)
 
-            tasks = [asyncio.create_task(maintenance()), asyncio.create_task(monitor_sessions())]
+            async def ingest_updates() -> None:
+                while True:
+                    try:
+                        if instance_guard.check():
+                            with sessions() as session:
+                                account_ids = session.scalars(
+                                    select(Account.id).where(Account.enabled.is_(True))
+                                ).all()
+                            for account_id in account_ids:
+                                await events.ingest_updates(account_id)
+                    except Exception:
+                        # Never log upstream text or payloads.
+                        logging.getLogger("tg_control.maintenance").error(
+                            "event ingestion failed"
+                        )
+                    await asyncio.sleep(EVENT_INGEST_INTERVAL_SECONDS)
+
+            async def run_scheduler() -> None:
+                while True:
+                    try:
+                        if instance_guard.check():
+                            await jobs.tick("gateway")
+                    except Exception:
+                        logging.getLogger("tg_control.maintenance").error("scheduler pass failed")
+                    await asyncio.sleep(SCHEDULER_INTERVAL_SECONDS)
+
+            tasks = [
+                asyncio.create_task(maintenance()),
+                asyncio.create_task(monitor_sessions()),
+                asyncio.create_task(ingest_updates()),
+                asyncio.create_task(run_scheduler()),
+            ]
             app.state.session_monitor_task = tasks[1]
             async with mcp.session_manager.run():
                 yield
         finally:
+            jobs.close()
             for task in tasks:
                 task.cancel()
             if tasks:
@@ -197,6 +280,8 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     app.state.instance_guard = instance_guard
     app.state.sessions = sessions
     app.state.settings = settings
+    app.state.events = events
+    app.state.jobs = jobs
 
     def record_auth_failure() -> None:
         with sessions() as session:
@@ -268,6 +353,14 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     @app.exception_handler(BatchRejected)
     async def batch_error(_request: Request, exc: BatchRejected):
         return JSONResponse({"error": exc.code, "items": exc.items}, status_code=exc.status_code)
+
+    @app.exception_handler(EventError)
+    async def event_error(_request: Request, exc: EventError):
+        return JSONResponse(exc.as_body(), status_code=exc.status_code)
+
+    @app.exception_handler(JobError)
+    async def job_error(_request: Request, exc: JobError):
+        return JSONResponse({"error": exc.code}, status_code=exc.status_code)
 
     @app.exception_handler(IntegrityError)
     async def conflict(_request: Request, _exc: IntegrityError):
@@ -536,6 +629,160 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
             owner_audit(session, "prune_audit")
             session.commit()
             return {"deleted": count, "retention_days": config.audit_retention_days}
+
+    # -- events ----------------------------------------------------------
+
+    @app.post("/v1/events/subscriptions", status_code=201)
+    async def create_subscription(
+        data: SubscriptionInput, principal: Principal = Depends(client_principal)
+    ):
+        return await events.create_subscription(
+            principal, data, request_id=request_id_context.get()
+        )
+
+    @app.get("/v1/events/subscriptions")
+    async def list_subscriptions(principal: Principal = Depends(client_principal)):
+        return {"subscriptions": events.list_subscriptions(principal)}
+
+    @app.delete("/v1/events/subscriptions/{subscription_id}", status_code=204)
+    async def delete_subscription(
+        subscription_id: UUID, principal: Principal = Depends(client_principal)
+    ):
+        events.delete_subscription(principal, str(subscription_id))
+
+    @app.post("/v1/events/subscriptions/{subscription_id}/pause")
+    async def pause_subscription(
+        subscription_id: UUID, principal: Principal = Depends(client_principal)
+    ):
+        return events.set_paused(principal, str(subscription_id), True)
+
+    @app.post("/v1/events/subscriptions/{subscription_id}/resume")
+    async def resume_subscription(
+        subscription_id: UUID, principal: Principal = Depends(client_principal)
+    ):
+        return events.set_paused(principal, str(subscription_id), False)
+
+    @app.post("/v1/events/subscriptions/{subscription_id}/pull")
+    async def pull_events(
+        subscription_id: UUID,
+        data: EventPullRequest,
+        principal: Principal = Depends(client_principal),
+    ):
+        return await events.pull(principal, str(subscription_id), limit=data.limit)
+
+    @app.post("/v1/events/subscriptions/{subscription_id}/ack")
+    async def ack_events(
+        subscription_id: UUID,
+        data: EventAckRequest,
+        principal: Principal = Depends(client_principal),
+    ):
+        return events.ack(principal, str(subscription_id), data.sequence)
+
+    @app.post("/v1/events/subscriptions/{subscription_id}/nack")
+    async def nack_events(
+        subscription_id: UUID,
+        data: EventNackRequest,
+        principal: Principal = Depends(client_principal),
+    ):
+        return events.nack(
+            principal, str(subscription_id), data.event_id, reason=data.reason
+        )
+
+    @app.get("/v1/admin/events/dead-letters", dependencies=[Depends(owner)])
+    async def event_dead_letters(
+        subscription_id: Annotated[str | None, Query(max_length=36)] = None
+    ):
+        return {"dead_letters": events.dead_letters(subscription_id)}
+
+    @app.post(
+        "/v1/admin/events/dead-letters/{dead_letter_id}/replay",
+        dependencies=[Depends(owner)],
+    )
+    async def replay_dead_letter(dead_letter_id: UUID):
+        result = events.replay_dead_letter(str(dead_letter_id))
+        with sessions() as session:
+            owner_audit(session, "event_dead_letter_replay")
+            session.commit()
+        return result
+
+    @app.post("/v1/admin/maintenance/prune-events", dependencies=[Depends(owner)])
+    async def prune_events():
+        with sessions() as session:
+            setting = session.get(Setting, "retention")
+            config = RetentionSettings.model_validate(setting.value if setting else {})
+            deleted = events.prune(config.event_retention_days)
+            owner_audit(session, "prune_events")
+            session.commit()
+        return {"deleted": deleted, "retention_days": config.event_retention_days}
+
+    # -- durable jobs ----------------------------------------------------
+
+    @app.post("/v1/jobs", status_code=201)
+    async def create_job(
+        data: JobCreateRequest, principal: Principal = Depends(client_principal)
+    ):
+        return await jobs.enqueue(
+            principal,
+            data.kind,
+            data.input,
+            schedule=data.schedule,
+            idempotency_key=data.idempotency_key,
+            deadline_seconds=data.deadline_seconds,
+            max_attempts=data.max_attempts,
+            request_id=request_id_context.get(),
+        )
+
+    @app.get("/v1/jobs")
+    async def list_jobs(principal: Principal = Depends(client_principal)):
+        return {"jobs": jobs.list_jobs(principal)}
+
+    @app.get("/v1/jobs/{job_id}")
+    async def inspect_job(job_id: UUID, principal: Principal = Depends(client_principal)):
+        return jobs.inspect(principal, str(job_id))
+
+    @app.post("/v1/jobs/{job_id}/pause")
+    async def pause_job(job_id: UUID, principal: Principal = Depends(client_principal)):
+        return jobs.set_paused(principal, str(job_id), True)
+
+    @app.post("/v1/jobs/{job_id}/resume")
+    async def resume_job(job_id: UUID, principal: Principal = Depends(client_principal)):
+        return jobs.set_paused(principal, str(job_id), False)
+
+    @app.post("/v1/jobs/{job_id}/cancel")
+    async def cancel_job(job_id: UUID, principal: Principal = Depends(client_principal)):
+        return jobs.cancel(principal, str(job_id))
+
+    @app.get("/v1/admin/jobs", dependencies=[Depends(owner)])
+    async def admin_jobs():
+        return {"jobs": jobs.list_jobs(None)}
+
+    @app.get("/v1/admin/jobs/{job_id}", dependencies=[Depends(owner)])
+    async def admin_job(job_id: UUID):
+        return jobs.inspect(None, str(job_id))
+
+    @app.post("/v1/admin/jobs/{job_id}/cancel", dependencies=[Depends(owner)])
+    async def admin_cancel_job(job_id: UUID):
+        result = jobs.cancel(None, str(job_id))
+        with sessions() as session:
+            owner_audit(session, "job_cancel")
+            session.commit()
+        return result
+
+    @app.post("/v1/admin/jobs/tick", dependencies=[Depends(owner)])
+    async def scheduler_tick():
+        result = await jobs.tick("owner")
+        with sessions() as session:
+            owner_audit(session, "scheduler_tick")
+            session.commit()
+        return result
+
+    @app.post("/v1/admin/jobs/recover", dependencies=[Depends(owner)])
+    async def scheduler_recover():
+        result = jobs.recover_expired_leases()
+        with sessions() as session:
+            owner_audit(session, "job_recover")
+            session.commit()
+        return {"recovered": result}
 
     @app.get("/", include_in_schema=False)
     async def index():
