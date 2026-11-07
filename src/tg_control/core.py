@@ -294,6 +294,35 @@ class Gateway:
             session.commit()
             return [{"id": a.id, "alias": a.alias} for a in visible]
 
+    async def preauthorize(
+        self, principal: Principal, batch: Batch, request_id: str | None = None
+    ) -> list[dict]:
+        """Authorization-only evaluation for delayed work.
+
+        Performs no adapter mutation and creates no execution key. Audit records are
+        committed even when every action is allowed, so delayed job creation is
+        traceable. Callers must still execute through :meth:`execute`, which
+        rechecks authorization immediately before the effect.
+        """
+        request_id = request_id or str(uuid.uuid4())
+        with self.sessions() as session:
+            if not is_active(session, principal):
+                raise BatchRejected(401, [], "credential_revoked")
+            results = []
+            for action in batch.actions:
+                try:
+                    allowed, error = await self._authorize(session, principal, action)
+                except AdapterError as exc:
+                    allowed, error = False, self._safe_adapter_error(exc, mutation=False)[0]
+                except Exception:
+                    allowed, error = False, "adapter_failure"
+                self._record_decision(session, principal, request_id, action, allowed, error)
+                results.append(
+                    {"operation": action.operation, "allowed": allowed, "error": error}
+                )
+            session.commit()
+            return results
+
     async def execute(
         self, principal: Principal, batch: Batch, request_id: str | None = None
     ) -> dict:

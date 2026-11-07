@@ -1,21 +1,50 @@
+# Version control and local tooling
 .git
 .gitignore
+.dockerignore
+.github
 .venv
+venv
 node_modules
-state
+package.json
+package-lock.json
+
+# Secrets, sessions, keys and environment files must never enter a build context.
 secrets
-backups
-*.tgcbak
+*.secret
 .env
 .env.*
 *.session
-*.db
-*.sqlite*
+*.session-journal
 *.key
 *.pem
+*.p12
+owner_token
+encryption_key
+backup_key
+postgres_password
+database_url
+
+# Persistent, generated or backup state
+state
+backups
+*.tgcbak
+*.dump
+*.sql
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Caches and build outputs
 __pycache__
+*.py[cod]
 .pytest_cache
 .ruff_cache
+.mypy_cache
 build
 dist
 *.egg-info
+.turbo
+coverage
+htmlcov

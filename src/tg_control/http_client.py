@@ -66,7 +66,9 @@ class GatewayHttpClient:
         self.token = token
         self.transport = transport
 
-    async def request(self, method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
+    async def request(
+        self, method: str, path: str, body: dict | None = None
+    ) -> tuple[int, dict | str]:
         # Paths are controlled by this client, never by content received from Telegram.
         async with httpx.AsyncClient(
             base_url=self.base_url,
@@ -78,10 +80,19 @@ class GatewayHttpClient:
             response = await client.request(
                 method, path, headers={"Authorization": f"Bearer {self.token}"}, json=body
             )
-            try:
-                data = response.json()
+            content_type = response.headers.get("content-type", "")
+            if "application/json" in content_type:
+                try:
+                    data = response.json()
+                except ValueError:
+                    return response.status_code, {"error": "invalid_gateway_response"}
                 if not isinstance(data, dict):
-                    data = {"error": "invalid_gateway_response"}
-            except ValueError:
-                data = {"error": "invalid_gateway_response"}
-            return response.status_code, data
+                    return response.status_code, {"error": "invalid_gateway_response"}
+                return response.status_code, data
+            if (
+                200 <= response.status_code < 300
+                and content_type.split(";")[0].strip() == "text/plain"
+            ):
+                # Prometheus text exposition is the only non-JSON success body.
+                return response.status_code, response.text[:1_048_576]
+            return response.status_code, {"error": "invalid_gateway_response"}

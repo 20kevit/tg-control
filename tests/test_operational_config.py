@@ -60,11 +60,24 @@ def test_compose_security_posture_is_local_only():
     assert "no-new-privileges:true" in database["security_opt"]
     assert all(value["file"].startswith("./secrets/") for value in config["secrets"].values())
     assert gateway["environment"]["TG_SYNTHETIC_STATE_DIR"]
+    # Hardened single-instance runtime properties introduced with the deployment
+    # foundation: unprivileged user, no extra capabilities, bounded resources.
+    assert gateway["user"] == "${TG_UID:-10001}:${TG_GID:-10001}"
+    assert gateway["init"] is True
+    assert gateway["mem_limit"] and gateway["pids_limit"] and gateway["cpus"]
+    assert int(gateway["stop_grace_period"].rstrip("s")) >= 35
+    assert any("noexec" in mount for mount in gateway["tmpfs"])
+    assert gateway["logging"]["options"]["max-size"]
+    assert gateway["depends_on"]["db"]["condition"] == "service_healthy"
+    migrate = config["services"]["migrate"]
+    assert migrate["profiles"] == ["tools"] and migrate["command"] == ["upgrade", "head"]
     override = yaml.safe_load((ROOT / "compose.backup.yaml").read_text())
     assert override["services"]["db"]["ports"] == ["127.0.0.1:55432:5432"]
     dockerfile = (ROOT / "Dockerfile").read_text()
     assert "--require-hashes" in dockerfile and "--workers" in dockerfile and '"1"' in dockerfile
     assert "tg_control.healthcheck" in dockerfile
+    assert "USER ${APP_UID}:${APP_GID}" in dockerfile
+    assert "--timeout-graceful-shutdown" in dockerfile
     assert "secrets" in (ROOT / ".dockerignore").read_text()
 
 

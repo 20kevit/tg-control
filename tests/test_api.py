@@ -213,9 +213,18 @@ def test_settings_session_health_and_owner_authority(api, settings):
         == 401
     )
     assert api.get("/v1/admin/settings", headers=owner).json()["audit_retention_days"] == 90
-    new = {"audit_retention_days": 30, "cache_ttl_seconds": 60, "media_retention_days": None}
-    assert api.put("/v1/admin/settings", headers=owner, json=new).json() == new
-    assert api.get("/v1/admin/settings", headers=owner).json() == new
+    new = {
+        "audit_retention_days": 30,
+        "cache_ttl_seconds": 60,
+        "media_retention_days": None,
+        "event_retention_days": 14,
+    }
+    # The response is the full persisted settings object (defaults included);
+    # every submitted field must round-trip exactly.
+    stored = api.put("/v1/admin/settings", headers=owner, json=new).json()
+    assert stored.items() >= new.items()
+    assert api.get("/v1/admin/settings", headers=owner).json() == stored
+    assert stored["auto_prune"] is False  # automatic pruning stays opt-in
     assert (
         api.post(
             "/v1/admin/maintenance/prune-audit", headers=auth(client["credential"])

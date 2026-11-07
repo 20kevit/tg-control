@@ -1,8 +1,17 @@
-# Local synthetic development only; never publish the application or database remotely.
+# Local, single-instance synthetic deployment.
+#
+# Boundaries (see docs/DEPLOYMENT.md and docs/OPERATIONS.md):
+# - Loopback-only port publication; never expose this Compose stack to a network.
+# - No Docker socket, no privileged mode, no host network, no added capabilities.
+# - Secrets are mounted files under ./secrets; nothing is placed in this file.
+# - The gateway does not migrate automatically. Run the one-shot `migrate`
+#   profile explicitly before starting a new version.
+# - Single instance only: the gateway holds a cooperative database advisory lock.
 services:
   db:
     image: postgres:17.9-bookworm
-    user: "${TG_UID:-1000}:${TG_GID:-1000}"
+    # Run as the host's unprivileged UID so the bind-mounted PGDATA stays usable.
+    user: "${TG_UID:-10001}:${TG_GID:-10001}"
     environment:
       POSTGRES_USER: tgcontrol
       POSTGRES_DB: tgcontrol
@@ -17,13 +26,31 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 10s
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
+    # Bounded resources and log growth: a runaway database must not fill the host
+    # disk or swallow the machine.
+    mem_limit: 1g
+    pids_limit: 512
+    shm_size: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    stop_grace_period: 60s
 
   gateway:
-    build: .
-    user: "${TG_UID:-1000}:${TG_GID:-1000}"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tg-control:local
+    # Fixed unprivileged identity from the image. Host bind mounts must be owned
+    # by this UID (see docs/DEPLOYMENT.md).
+    user: "${TG_UID:-10001}:${TG_GID:-10001}"
     depends_on:
       db:
         condition: service_healthy
@@ -32,8 +59,12 @@ services:
       TG_OWNER_TOKEN_FILE: /run/secrets/owner_token
       TG_ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
       TG_SYNTHETIC_STATE_DIR: /var/lib/tg-control/synthetic
-      TG_ALLOWED_HOSTS: localhost,127.0.0.1
-      TG_ALLOWED_ORIGINS: http://localhost:8000,http://127.0.0.1:8000
+      TG_MEDIA_STAGING_DIR: /var/lib/tg-control/media
+      TG_ALLOWED_HOSTS: ${TG_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      TG_ALLOWED_ORIGINS: ${TG_ALLOWED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      TG_LOG_LEVEL: ${TG_LOG_LEVEL:-INFO}
+      TG_HEALTH_PORT: "8000"
+      TMPDIR: /tmp
     secrets:
       - database_url
       - owner_token
@@ -41,14 +72,65 @@ services:
     volumes:
       - ./state/synthetic:/var/lib/tg-control/synthetic
     ports:
+      # Loopback only. Publishing on 0.0.0.0 would expose the panel/API.
       - "127.0.0.1:8000:8000"
     read_only: true
     tmpfs:
+      # Media staging is intentionally ephemeral: staged bytes never need to
+      # survive a restart, and a tmpfs bounds disk use by construction.
       - /tmp:rw,noexec,nosuid,size=64m
+      - /var/lib/tg-control/media:rw,noexec,nosuid,size=256m,uid=${TG_UID:-10001},gid=${TG_GID:-10001},mode=0700
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
     init: true
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    # Longer than the app's 30 s graceful-shutdown window so in-flight requests
+    # and the framework shutdown complete before SIGKILL.
+    stop_grace_period: 45s
+    healthcheck:
+      test: ["CMD", "python", "-m", "tg_control.healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # One-shot migration runner. Never started implicitly: the gateway refuses to
+  # run against a stale schema, and migrations are an explicit owner action.
+  #   docker compose run --rm migrate
+  migrate:
+    image: tg-control:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TG_DATABASE_URL_FILE: /run/secrets/database_url
+      TG_OWNER_TOKEN_FILE: /run/secrets/owner_token
+      TG_ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+    secrets:
+      - database_url
+      - owner_token
+      - encryption_key
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    entrypoint: ["python", "-m", "alembic"]
+    command: ["upgrade", "head"]
 
 secrets:
   postgres_password:

@@ -31,6 +31,10 @@ class Settings:
     operation_timeout_seconds: float = 30.0
     max_request_bytes: int = 2 * 1024 * 1024
     synthetic_state_dir: Path | None = None
+    media_staging_dir: Path | None = None
+    # Application log level. DEBUG is intentionally unavailable: it would make
+    # third-party libraries emit payloads that the redaction allowlist cannot cover.
+    log_level: str = "INFO"
 
     def __post_init__(self) -> None:
         if len(self.owner_token) < 32:
@@ -44,11 +48,24 @@ class Settings:
             raise ValueError("invalid operation timeout")
         if not (1024 <= self.max_request_bytes <= 20 * 1024 * 1024):
             raise ValueError("invalid maximum request size")
+        if self.log_level not in {"INFO", "WARNING", "ERROR", "CRITICAL"}:
+            raise ValueError("invalid log level")
 
     @classmethod
     def from_env(cls) -> Settings:
-        # Database URI may include a password; a mounted file is preferred.
+        # Fail with one actionable message naming the *variable*, never a value or
+        # a resolved path: a container that starts without its mounted secrets
+        # must say why instead of raising a bare KeyError.
         db_file = os.environ.get("TG_DATABASE_URL_FILE")
+        missing = [
+            name
+            for name in ("TG_OWNER_TOKEN_FILE", "TG_ENCRYPTION_KEY_FILE")
+            if not os.environ.get(name)
+        ]
+        if not db_file and not os.environ.get("TG_DATABASE_URL"):
+            missing.insert(0, "TG_DATABASE_URL_FILE (or TG_DATABASE_URL)")
+        if missing:
+            raise RuntimeError("missing required configuration: " + ", ".join(missing))
         database_url = _read_secret(db_file) if db_file else os.environ["TG_DATABASE_URL"]
         owner = _read_secret(os.environ["TG_OWNER_TOKEN_FILE"])
         key = _read_secret(os.environ["TG_ENCRYPTION_KEY_FILE"]).encode("ascii")
@@ -65,6 +82,8 @@ class Settings:
             if x.strip()
         )
         state_dir = os.getenv("TG_SYNTHETIC_STATE_DIR")
+        staging_dir = os.getenv("TG_MEDIA_STAGING_DIR")
+        log_level = os.getenv("TG_LOG_LEVEL", "INFO").strip().upper() or "INFO"
         return cls(
             database_url,
             owner,
@@ -72,4 +91,6 @@ class Settings:
             hosts,
             origins,
             synthetic_state_dir=Path(state_dir) if state_dir else None,
+            media_staging_dir=Path(staging_dir) if staging_dir else None,
+            log_level=log_level,
         )

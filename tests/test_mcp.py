@@ -44,7 +44,11 @@ def test_mcp_streamable_http_auth_tools_scope_and_revocation(api, settings):
     assert init.status_code == 200, init.text
     assert init.json()["result"]["serverInfo"]["name"] == "tg-control"
     listed = rpc(api, token, "tools/list").json()
-    assert {tool["name"] for tool in listed["result"]["tools"]} == {"tg_accounts", "tg_execute"}
+    from tg_control.mcp_server import TOOLS
+
+    listed_names = {tool["name"] for tool in listed["result"]["tools"]}
+    assert listed_names == {tool.name for tool in TOOLS}
+    assert {"tg_accounts", "tg_execute", "tg_jobs", "tg_save", "tg_events_pull"} <= listed_names
     accounts = rpc(api, token, "tools/call", {"name": "tg_accounts", "arguments": {}})
     assert accounts.status_code == 200, accounts.text
     assert accounts.json()["result"]["structuredContent"]["accounts"][0]["id"] == account["id"]
@@ -157,7 +161,12 @@ async def test_mcp_sdk_stdio_backend_over_shared_api(api, settings):
             init = await session.initialize()
             assert init.server_info.name == "tg-control"
             tools = await session.list_tools()
-            assert {tool.name for tool in tools.tools} == {"tg_accounts", "tg_execute"}
+            assert {tool.name for tool in tools.tools} >= {
+                "tg_accounts",
+                "tg_execute",
+                "tg_jobs",
+                "tg_commands",
+            }
             accounts = await session.call_tool("tg_accounts", {})
             assert accounts.structured_content["accounts"][0]["id"] == account["id"]
             denied = await session.call_tool(
@@ -255,10 +264,9 @@ async def test_mcp_does_not_claim_success_for_malformed_batch_results():
     ]
 
     class MalformedBackend:
-        async def accounts(self, _context):
-            return {"accounts": []}
-
-        async def execute(self, _context, _batch):
+        async def call(self, _context, tool_name, _arguments):
+            if tool_name == "tg_accounts":
+                return {"accounts": []}
             return malformed.pop(0)
 
     server = create_mcp_server(MalformedBackend())
@@ -317,3 +325,29 @@ async def test_stdio_mcp_does_not_ignore_http_failure_status():
                 "error": "gateway_http_error",
                 "outcome_unknown": True,
             }
+
+
+def test_mcp_is_bearer_only_and_advertises_no_oauth_metadata(api):
+    """ADR-014: remote MCP is bearer-only until an identity model is approved.
+
+    The test pins both halves of the documented limitation: unauthorized access
+    gets a standards-shaped 401 challenge, and no OAuth discovery document is
+    served that could make a client believe dynamic registration exists.
+    """
+    unauthorized = api.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        headers={"Accept": "application/json, text/event-stream"},
+    )
+    assert unauthorized.status_code == 401
+    assert unauthorized.headers.get("www-authenticate") == "Bearer"
+    assert "authorization_server" not in unauthorized.text
+    assert "oauth" not in unauthorized.text.lower()
+
+    for path in (
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+    ):
+        response = api.get(path)
+        assert response.status_code == 404, path

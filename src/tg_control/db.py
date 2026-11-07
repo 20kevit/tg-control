@@ -21,6 +21,75 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+# Bumped with every additive migration. Startup refuses anything else; it never
+# auto-migrates. Downgrades require explicit approval and a verified backup.
+EXPECTED_SCHEMA_REVISION = "0007"
+# Migration policy is deliberately the only supported value: the application
+# requires a schema that exactly matches the deployed code. There is no
+# "migrate on start" mode, because an automatic migration would be an
+# uncontrolled, irreversible change performed by a process that may restart
+# repeatedly (see docs/OPERATIONS.md and docs/DEPLOYMENT.md).
+MIGRATION_POLICY = "require_current"
+
+
+def _revision_relation(revision: str) -> str:
+    """Classify a deployed revision relative to this build.
+
+    Revision ids are zero-padded numeric prefixes (``0007``). Anything that does
+    not parse is reported as ``unknown`` rather than guessed: startup treats every
+    non-``current`` state as a hard failure, so an unrecognised revision can never
+    be mistaken for a compatible one.
+    """
+    try:
+        deployed = int(revision)
+        expected = int(EXPECTED_SCHEMA_REVISION)
+    except (TypeError, ValueError):
+        return "unknown"
+    if deployed == expected:
+        return "current"
+    return "behind" if deployed < expected else "ahead"
+
+
+def schema_state(engine: Engine) -> dict[str, str]:
+    """Describe the deployed schema without mutating anything.
+
+    Returns ``state`` (``current``, ``behind``, ``ahead``, ``missing`` or
+    ``unavailable``), the raw ``revision`` when readable, and
+    ``objects`` (``complete``/``incomplete``). A partially applied migration is
+    reported as ``incomplete`` even when the recorded revision matches, so a
+    half-restored or hand-edited schema cannot masquerade as ready.
+    """
+    from sqlalchemy import inspect, text
+    from sqlalchemy.exc import SQLAlchemyError
+
+    try:
+        with engine.connect() as connection:
+            names = set(inspect(connection).get_table_names())
+            if "alembic_version" not in names:
+                # A fresh database is unmigrated, not unreachable: querying the
+                # missing table would raise and be misreported as a connection
+                # failure, sending operators after the wrong problem.
+                return {"state": "missing", "revision": "", "objects": "incomplete"}
+            revision = connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one_or_none()
+    except SQLAlchemyError:
+        return {"state": "unavailable", "revision": "", "objects": "unknown"}
+    if revision is None:
+        return {"state": "missing", "revision": "", "objects": "incomplete"}
+    if revision == EXPECTED_SCHEMA_REVISION:
+        missing = sorted(set(Base.metadata.tables) - names)
+        return {
+            "state": "current",
+            "revision": str(revision),
+            "objects": "incomplete" if missing else "complete",
+        }
+    return {
+        "state": _revision_relation(str(revision)),
+        "revision": str(revision),
+        "objects": "unknown",
+    }
+
 
 def now() -> datetime:
     return datetime.now(timezone.utc)
@@ -140,3 +209,187 @@ class ExecutionKey(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=now
     )
+
+
+class EventRecord(Base):
+    """Normalized event inbox. Payloads are untrusted data, never instructions."""
+
+    __tablename__ = "events"
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False, default=new_id)
+    account_id: Mapped[str] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now
+    )
+    aggregate_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    aggregate_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    chat_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    causation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    __table_args__ = (
+        Index("ix_events_account_seq", "account_id", "seq"),
+        Index("ix_events_type_seq", "event_type", "seq"),
+    )
+
+
+class EventSubscription(Base):
+    __tablename__ = "event_subscriptions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    client_id: Mapped[str] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    account_id: Mapped[str] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    event_types: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    chat_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    max_inflight: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    cursor_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now
+    )
+    __table_args__ = (
+        Index("ix_event_subscriptions_client", "client_id", "account_id"),
+        Index("ix_event_subscriptions_name", "client_id", "account_id", "name", unique=True),
+    )
+
+
+class EventAttempt(Base):
+    __tablename__ = "event_attempts"
+    subscription_id: Mapped[str] = mapped_column(
+        ForeignKey("event_subscriptions.id", ondelete="CASCADE"), primary_key=True
+    )
+    event_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class EventDeadLetter(Base):
+    __tablename__ = "event_dead_letters"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    subscription_id: Mapped[str] = mapped_column(
+        ForeignKey("event_subscriptions.id", ondelete="CASCADE"), index=True
+    )
+    event_seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now
+    )
+    __table_args__ = (
+        Index("ix_event_dead_letters_event", "subscription_id", "event_id", unique=True),
+    )
+
+
+class Job(Base):
+    """Durable job metadata. Never stores credentials, secrets or message bodies."""
+
+    __tablename__ = "jobs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    kind: Mapped[str] = mapped_column(String(48), nullable=False)
+    client_id: Mapped[str | None] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    credential_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    account_id: Mapped[str | None] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), nullable=True
+    )
+    input: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    schedule_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="once")
+    run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    local_time: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    misfire_policy: Mapped[str] = mapped_column(String(16), nullable=False, default="skip")
+    misfire_grace_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=300)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_error: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(36), unique=True, nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now, onupdate=now
+    )
+    __table_args__ = (
+        Index("ix_jobs_state_run_at", "state", "run_at"),
+        Index("ix_jobs_client_state", "client_id", "state"),
+    )
+
+
+class JobRun(Base):
+    __tablename__ = "job_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    worker_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    outcome_unknown: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    __table_args__ = (Index("ix_job_runs_job_attempt", "job_id", "attempt", unique=True),)
+
+
+class Workflow(Base):
+    """Owner-configured, versioned, bounded automation definition."""
+
+    __tablename__ = "workflows"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    client_id: Mapped[str] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now, onupdate=now
+    )
+
+
+class WorkflowRun(Base):
+    __tablename__ = "workflow_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    workflow_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    steps: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    error: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    definition_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    __table_args__ = (Index("ix_workflow_runs_workflow_started", "workflow_id", "started_at"),)

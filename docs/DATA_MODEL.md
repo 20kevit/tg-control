@@ -13,3 +13,50 @@ The cache is process-local only, limited by entry count and approximately 16 MiB
 ## Session-monitor metadata
 
 The `session_monitor_v1` setting stores the most recently observed normalized state by enabled account UUID, and `session_transition` audit rows record state changes in the same database transaction. This contains no message content, credentials, phone numbers or upstream error strings. Unchanged states remain deduplicated across process restarts; audit retention and backups apply to transition rows. The additive `0004` migration indexes `(event, id)` for owner-filtered history. Monitor task progress, counters and timestamps are process-local and reset at restart; they are not a durable heartbeat. Multiple gateway workers remain unsupported.
+
+## Event inbox and subscriptions (migration `0005`)
+
+`events` is the durable normalized inbox: an auto-incrementing per-gateway `seq`, immutable UUID `id`, account UUID, namespaced `event_type`, `schema_version`, source, `occurred_at`/`observed_at`, aggregate identifiers, optional `chat_id`, correlation/causation IDs, a schema-validated JSON `payload` (≤ 8 KiB, allowlisted keys per type) and a unique `fingerprint` for deduplication. Raw TDLib objects are never stored. `event_subscriptions` holds the client/account filters, pause flag, `max_inflight` and the monotonic `cursor_seq`. `event_attempts` bounds per-subscription delivery attempts; `event_dead_letters` records poison events with a sanitized reason. Event payload retention is separate from audit and media retention and is pruned only by the owner endpoint.
+
+## Jobs and execution history (migration `0006`)
+
+`jobs` stores the registered `kind`, versioned strict `input` (≤ 4 KiB, no credentials or message bodies), creator `client_id`/`credential_id`, account, schedule (`once` with an aware `run_at`, or `daily_local` with IANA zone and local time), misfire policy/grace, state, attempts, deadline, lease owner/expiry, pause and cancel flags, last sanitized error, bounded result and unique idempotency key. `job_runs` keeps one bounded row per attempt (state, worker, timings, error code, unknown-outcome flag). Neither table stores message text from previous runs.
+
+## Media staging
+
+Staged media bytes are not stored in PostgreSQL. They live under a private staging root in per-account UUID directories with server-generated names, mode 0600, written to a `.part` file and atomically renamed after size/signature/SHA-256 verification. Metadata (filename, content type, size, checksum, account) exists only in process memory for the duration of a transfer and is discarded on release. Files expire after the staging TTL and are removed on failure, cancellation, release and startup/hourly cleanup. Backups do not capture staged bytes.
+
+## Command audit
+
+`command_save` audit events store the account, source chat and decision/error code. Message text, captions, filenames, media checksums and staging identifiers are never written to audit, logs or MCP responses.
+
+## Workflow definitions and runs (migration `0007`)
+
+`workflows` holds the owner-configured name, current version, enabled flag, typed JSON definition, and the single delegated client whose policy applies. Each update increments `version` and replaces the stored definition; renaming or changing the delegated client is rejected. `workflow_runs` stores an immutable `definition_snapshot` of the version used, state, trigger (`manual` or `dry_run`), timings, correlation ID and a bounded JSON array of per-step outcomes (`index`, `kind`, `status`, sanitized error code, optional message ID). Step outcomes contain no message text, credentials or file paths. Interrupted runs are marked `outcome_unknown` and retained for inspection.
+
+## Retention and pruning (jobs, workflow runs, audit)
+
+Rows are deleted only by explicit owner calls; nothing is pruned by a background timer. `POST /v1/admin/maintenance/prune-jobs` deletes `jobs` rows in a terminal state (`succeeded`, `failed`, `outcome_unknown`, `cancelled`, `expired`) whose `updated_at` is older than the window; `job_runs` rows follow via `ON DELETE CASCADE`. `POST .../prune-workflows` deletes `workflow_runs` whose state is finished (`succeeded`, `partial_failure`, `failed`, `outcome_unknown`) and whose `started_at` is older than the window. A `queued`, `scheduled`, `retry_wait`, `running` or `paused` job and a `running` workflow run are never eligible, because their records are operational state rather than history. Both endpoints accept `dry_run`, return `eligible`/`deleted`, are idempotent, and append an audit row. Deleting history does not and cannot undo an external effect; backups, WAL and filesystem snapshots may retain the rows.
+
+## Schema revision and startup gate
+
+`alembic/versions` is the only schema history; the current head is `0007`
+(`workflows`). `src/tg_control/db.py` declares `EXPECTED_SCHEMA_REVISION = "0007"`
+and `MIGRATION_POLICY = "require_current"`, and exposes a read-only
+`schema_state(engine)` returning:
+
+| Field | Values | Meaning |
+|---|---|---|
+| `state` | `current`, `behind`, `ahead`, `missing`, `unavailable`, `unknown` | relation of the deployed `alembic_version` to this build; `unknown` = revision cannot be ordered (foreign/hand-edited) |
+| `revision` | string (possibly empty) | raw deployed revision |
+| `objects` | `complete`, `incomplete`, `unknown` | whether every table in `Base.metadata` exists (detects a half-applied migration or interrupted restore even when the recorded revision matches) |
+
+The API refuses to start unless `state == "current"` **and**
+`objects == "complete"`, logs `startup.schema_rejected` at CRITICAL, and never
+runs a migration itself. Readiness exposes the same two fields
+(`checks.migration`, `checks.schema_objects`) and owner diagnostics report
+`database.migration_state` and `database.schema_objects`. Consequence: a
+partially applied or restored schema is visible and fail-closed rather than
+serving queries that later fail on a missing table. Recovery is an explicit
+`alembic upgrade head`/`downgrade` (only the tested ones) or a verified restore;
+see `BACKUP_RESTORE.md`.

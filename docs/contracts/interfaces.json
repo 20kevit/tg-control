@@ -1,0 +1,1469 @@
+{
+  "schema_version": 1,
+  "operations": [
+    {
+      "name": "accounts.list",
+      "http": "GET /v1/accounts",
+      "mcp_tool": "tg_accounts",
+      "cli": "accounts",
+      "principal": "client",
+      "core": "Gateway.list_accounts",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "actions.execute",
+      "http": "POST /v1/execute",
+      "mcp_tool": "tg_execute",
+      "cli": "execute",
+      "principal": "client",
+      "core": "Gateway.execute",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied",
+        "batch_precondition_failed",
+        "idempotency_conflict",
+        "rate_limit",
+        "storage_unavailable"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "jobs.create",
+      "http": "POST /v1/jobs",
+      "mcp_tool": "tg_jobs_create",
+      "cli": "jobs-create",
+      "principal": "client",
+      "core": "Jobs.enqueue",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied",
+        "unknown_job_kind",
+        "invalid_input",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "jobs.list",
+      "http": "GET /v1/jobs",
+      "mcp_tool": "tg_jobs",
+      "cli": "jobs",
+      "principal": "client",
+      "core": "Jobs.list_jobs",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied",
+        "invalid_cursor",
+        "expired_cursor"
+      ],
+      "pagination": true,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "jobs.inspect",
+      "http": "GET /v1/jobs/{job_id}",
+      "mcp_tool": "tg_job_get",
+      "cli": "jobs-get",
+      "principal": "client",
+      "core": "Jobs.inspect",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied",
+        "job_not_found"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "jobs.pause",
+      "http": "POST /v1/jobs/{job_id}/pause",
+      "mcp_tool": "tg_job_pause",
+      "cli": "jobs-pause",
+      "principal": "client",
+      "core": "Jobs.set_paused",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied",
+        "job_not_found",
+        "job_conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "jobs.resume",
+      "http": "POST /v1/jobs/{job_id}/resume",
+      "mcp_tool": "tg_job_resume",
+      "cli": "jobs-resume",
+      "principal": "client",
+      "core": "Jobs.set_paused",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied",
+        "job_not_found",
+        "job_conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "jobs.cancel",
+      "http": "POST /v1/jobs/{job_id}/cancel",
+      "mcp_tool": "tg_job_cancel",
+      "cli": "jobs-cancel",
+      "principal": "client",
+      "core": "Jobs.cancel",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied",
+        "job_not_found",
+        "job_conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "commands.catalog",
+      "http": "GET /v1/commands",
+      "mcp_tool": "tg_commands",
+      "cli": "commands",
+      "principal": "client",
+      "core": "CommandRouter.catalog",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "commands.save",
+      "http": "POST /v1/commands/save",
+      "mcp_tool": "tg_save",
+      "cli": "save",
+      "principal": "client",
+      "core": "CommandRouter.invoke",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied",
+        "unresolved_reply",
+        "unavailable_source",
+        "duplicate_invocation",
+        "unsupported_content",
+        "unsupported_media",
+        "destination_denied",
+        "rate_limit",
+        "outcome_unknown"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "events.subscribe",
+      "http": "POST /v1/events/subscriptions",
+      "mcp_tool": "tg_events_subscribe",
+      "cli": "events-subscribe",
+      "principal": "client",
+      "core": "EventService.create_subscription",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "events.subscriptions",
+      "http": "GET /v1/events/subscriptions",
+      "mcp_tool": "tg_events_subscriptions",
+      "cli": "events",
+      "principal": "client",
+      "core": "EventService.list_subscriptions",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "events.unsubscribe",
+      "http": "DELETE /v1/events/subscriptions/{subscription_id}",
+      "mcp_tool": "tg_events_unsubscribe",
+      "cli": "events-unsubscribe",
+      "principal": "client",
+      "core": "EventService.delete_subscription",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "events.pause",
+      "http": "POST /v1/events/subscriptions/{subscription_id}/pause",
+      "mcp_tool": "tg_events_pause",
+      "cli": "events-pause",
+      "principal": "client",
+      "core": "EventService.set_paused",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "events.resume",
+      "http": "POST /v1/events/subscriptions/{subscription_id}/resume",
+      "mcp_tool": "tg_events_resume",
+      "cli": "events-resume",
+      "principal": "client",
+      "core": "EventService.set_paused",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "events.pull",
+      "http": "POST /v1/events/subscriptions/{subscription_id}/pull",
+      "mcp_tool": "tg_events_pull",
+      "cli": "events-pull",
+      "principal": "client",
+      "core": "EventService.pull",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied",
+        "cursor_expired",
+        "subscription_paused"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "events.ack",
+      "http": "POST /v1/events/subscriptions/{subscription_id}/ack",
+      "mcp_tool": "tg_events_ack",
+      "cli": "events-ack",
+      "principal": "client",
+      "core": "EventService.ack",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied",
+        "invalid_cursor"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "events.nack",
+      "http": "POST /v1/events/subscriptions/{subscription_id}/nack",
+      "mcp_tool": "tg_events_nack",
+      "cli": "events-nack",
+      "principal": "client",
+      "core": "EventService.nack",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied",
+        "event_not_found"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "ai.catalog",
+      "http": "GET /v1/ai/tasks",
+      "mcp_tool": "tg_ai_tasks",
+      "cli": "ai-tasks",
+      "principal": "client",
+      "core": "AIService.catalog",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "ai.run",
+      "http": "POST /v1/ai/tasks/{task_name}/run",
+      "mcp_tool": "tg_ai_run",
+      "cli": "ai-run",
+      "principal": "client",
+      "core": "AIService.invoke",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "credential_revoked",
+        "denied",
+        "unknown_task",
+        "unknown_provider",
+        "unknown_model",
+        "unsupported_task",
+        "compliance_blocked",
+        "invalid_input",
+        "input_too_large",
+        "budget_exceeded",
+        "timeout",
+        "provider_error",
+        "invalid_output"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "mcp",
+        "cli"
+      ]
+    },
+    {
+      "name": "health.live",
+      "http": "GET /health/live",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "app.liveness",
+      "errors": [],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "health.ready",
+      "http": "GET /health/ready",
+      "mcp_tool": null,
+      "cli": "health",
+      "principal": "owner",
+      "core": "app.readiness",
+      "errors": [],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "cli"
+      ]
+    },
+    {
+      "name": "health.dependencies",
+      "http": "GET /health/dependencies",
+      "mcp_tool": null,
+      "cli": "health-dependencies",
+      "principal": "owner",
+      "core": "app.dependencies",
+      "errors": [],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "cli"
+      ]
+    },
+    {
+      "name": "diagnostics.snapshot",
+      "http": "GET /v1/admin/diagnostics",
+      "mcp_tool": null,
+      "cli": "diagnose",
+      "principal": "owner",
+      "core": "Diagnostics.collect",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "cli"
+      ]
+    },
+    {
+      "name": "metrics.snapshot",
+      "http": "GET /v1/admin/metrics",
+      "mcp_tool": null,
+      "cli": "metrics",
+      "principal": "owner",
+      "core": "observability.METRICS",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "cli"
+      ]
+    },
+    {
+      "name": "traces.recent",
+      "http": "GET /v1/admin/traces",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "observability.SPANS",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "openapi.schema",
+      "http": "GET /openapi.json",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "FastAPI.openapi",
+      "errors": [],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "audit.list",
+      "http": "GET /v1/admin/audit",
+      "mcp_tool": null,
+      "cli": "audit",
+      "principal": "owner",
+      "core": "AuditEvent query",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "invalid_cursor",
+        "expired_cursor"
+      ],
+      "pagination": true,
+      "audit": true,
+      "interfaces": [
+        "http",
+        "cli"
+      ]
+    },
+    {
+      "name": "admin.accounts.list",
+      "http": "GET /v1/admin/accounts",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Account query",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.accounts.create",
+      "http": "POST /v1/admin/accounts",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Account provisioning",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.accounts.update",
+      "http": "PATCH /v1/admin/accounts/{account_id}",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Account update",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.accounts.status",
+      "http": "GET /v1/admin/accounts/{account_id}/status",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Gateway.owner_account_status",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.accounts.reconnect",
+      "http": "POST /v1/admin/accounts/{account_id}/reconnect",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Gateway.owner_account_status",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.clients.list",
+      "http": "GET /v1/admin/clients",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Client query",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.clients.create",
+      "http": "POST /v1/admin/clients",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "rotate_credential",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.clients.rotate",
+      "http": "POST /v1/admin/clients/{client_id}/rotate",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "rotate_credential",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.clients.revoke",
+      "http": "POST /v1/admin/clients/{client_id}/revoke",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "revoke_client",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.policy.get",
+      "http": "GET /v1/admin/clients/{client_id}/accounts/{account_id}/policy",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "policy.get_scope",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.policy.set",
+      "http": "PUT /v1/admin/clients/{client_id}/accounts/{account_id}/policy",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Grant update",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.session_monitor",
+      "http": "GET /v1/admin/session-monitor",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "SessionMonitorProgress.snapshot",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.storage_status",
+      "http": "GET /v1/admin/storage-status",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Gateway.storage_status",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.settings.get",
+      "http": "GET /v1/admin/settings",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Setting query",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.settings.put",
+      "http": "PUT /v1/admin/settings",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Retention configuration",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.maintenance.prune_audit",
+      "http": "POST /v1/admin/maintenance/prune-audit",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "audit.prune",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.maintenance.prune_events",
+      "http": "POST /v1/admin/maintenance/prune-events",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "EventService.prune",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.maintenance.prune_jobs",
+      "http": "POST /v1/admin/maintenance/prune-jobs",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Jobs.prune_terminal",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.maintenance.prune_workflows",
+      "http": "POST /v1/admin/maintenance/prune-workflows",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Workflows.prune_runs",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.events.dead_letters",
+      "http": "GET /v1/admin/events/dead-letters",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "EventService.dead_letters",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.events.replay",
+      "http": "POST /v1/admin/events/dead-letters/{dead_letter_id}/replay",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "EventService.replay_dead_letter",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.jobs.list",
+      "http": "GET /v1/admin/jobs",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Jobs.list_jobs",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict",
+        "invalid_cursor",
+        "expired_cursor"
+      ],
+      "pagination": true,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.jobs.inspect",
+      "http": "GET /v1/admin/jobs/{job_id}",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Jobs.inspect",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.jobs.cancel",
+      "http": "POST /v1/admin/jobs/{job_id}/cancel",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Jobs.cancel",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.jobs.tick",
+      "http": "POST /v1/admin/jobs/tick",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Jobs.tick",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.jobs.recover",
+      "http": "POST /v1/admin/jobs/recover",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Jobs.recover_expired_leases",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.commands.save",
+      "http": "POST /v1/admin/commands/save",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "CommandRouter.invoke",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.workflows.list",
+      "http": "GET /v1/admin/workflows",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Workflows.list",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.workflows.create",
+      "http": "POST /v1/admin/workflows",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Workflows.create",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.workflows.get",
+      "http": "GET /v1/admin/workflows/{workflow_id}",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Workflows.get",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.workflows.update",
+      "http": "PUT /v1/admin/workflows/{workflow_id}",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Workflows.update",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.workflows.enable",
+      "http": "POST /v1/admin/workflows/{workflow_id}/enable",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Workflows.set_enabled",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.workflows.disable",
+      "http": "POST /v1/admin/workflows/{workflow_id}/disable",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Workflows.set_enabled",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.workflows.run",
+      "http": "POST /v1/admin/workflows/{workflow_id}/run",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Workflows.run",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict",
+        "workflow_not_found",
+        "workflow_disabled",
+        "partial_failure"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.workflows.runs",
+      "http": "GET /v1/admin/workflows/{workflow_id}/runs",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Workflows.runs",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict",
+        "invalid_cursor",
+        "expired_cursor"
+      ],
+      "pagination": true,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.workflows.run_get",
+      "http": "GET /v1/admin/workflow-runs/{run_id}",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Workflows.get_run",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.workflows.recover",
+      "http": "POST /v1/admin/workflows/recover",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "Workflows.recover_interrupted",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.ai.providers",
+      "http": "GET /v1/admin/ai/providers",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "AIService.providers",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.plugins.list",
+      "http": "GET /v1/admin/plugins",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "PluginRegistry.list",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.plugins.install",
+      "http": "POST /v1/admin/plugins",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "PluginRegistry.install",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.plugins.get",
+      "http": "GET /v1/admin/plugins/{plugin_id}",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "PluginRegistry.get",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.plugins.grant",
+      "http": "POST /v1/admin/plugins/{plugin_id}/grant",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "PluginRegistry.grant",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.plugins.enable",
+      "http": "POST /v1/admin/plugins/{plugin_id}/enable",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "PluginRegistry.enable",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    },
+    {
+      "name": "admin.plugins.disable",
+      "http": "POST /v1/admin/plugins/{plugin_id}/disable",
+      "mcp_tool": null,
+      "cli": null,
+      "principal": "owner",
+      "core": "PluginRegistry.disable",
+      "errors": [
+        "invalid_request",
+        "invalid_credential",
+        "forbidden",
+        "conflict"
+      ],
+      "pagination": false,
+      "audit": true,
+      "interfaces": [
+        "http"
+      ]
+    }
+  ],
+  "core_actions": [
+    "list_chats",
+    "search",
+    "history",
+    "get_message",
+    "get_media",
+    "send",
+    "send_media",
+    "edit",
+    "delete",
+    "forward",
+    "set_title",
+    "set_member_status"
+  ],
+  "mutating_actions": [
+    "delete",
+    "edit",
+    "forward",
+    "send",
+    "send_media",
+    "set_member_status",
+    "set_title"
+  ],
+  "notes": "Every row executes through Gateway Core and the Policy Engine. The generic CLI 'request' command can reach any /v1 route and is intentionally outside the semantic parity guarantees; it cannot bypass Core or policy."
+}

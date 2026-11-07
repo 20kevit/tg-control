@@ -366,3 +366,193 @@ def test_authenticated_manifest_version_must_be_an_integer(tmp_path, version):
         restore_backup(
             url_file, key_file, archive_path, state_dir=None, confirm_empty=True, bin_dir=PG_BIN
         )
+
+
+def _synthetic_archive(path, key, manifest, *, dump=b"PGDMP synthetic dump"):
+    import base64
+    import io
+    import json
+    import tarfile
+
+    from tg_control.backup import _EncryptWriter, _tar_file
+
+    with path.open("wb") as output:
+        writer = _EncryptWriter(output, base64.urlsafe_b64decode(key))
+        with tarfile.open(fileobj=writer, mode="w|") as archive:
+            raw = json.dumps(manifest).encode()
+            _tar_file(archive, "manifest.json", io.BytesIO(raw), len(raw))
+            _tar_file(archive, "database.dump", io.BytesIO(dump), len(dump))
+        writer.finish()
+    return path
+
+
+def _manifest(**overrides):
+    manifest = {
+        "version": 2,
+        "includes_state": False,
+        "app_version": "0.1.0",
+        "schema_revision": "0008_retention",
+        "created_at": "2026-01-01T00:00:00+00:00",
+    }
+    manifest.update(overrides)
+    return manifest
+
+
+def test_verify_reports_metadata_and_writes_nothing(tmp_path):
+    from tg_control.backup import verify_archive
+
+    key = Fernet.generate_key()
+    key_file = secret(tmp_path / "key", key)
+    archive = _synthetic_archive(tmp_path / "good.tgcbak", key, _manifest())
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    state_target = tmp_path / "restore-target"
+    report = verify_archive(
+        archive,
+        key_file,
+        state_dir=state_target,
+        scratch_dir=scratch,
+        expected_schema_revision="0008_retention",
+    )
+    assert report["format"] == "tg-control-encrypted-backup"
+    assert report["manifest_version"] == 2
+    assert report["app_version"] == "0.1.0"
+    assert report["schema_revision"] == "0008_retention"
+    assert report["includes_state"] is False
+    assert report["state_accounts"] == 0
+    assert report["dump_bytes"] == len(b"PGDMP synthetic dump")
+    assert report["archive_bytes"] == archive.stat().st_size
+    assert report["integrity"] == "verified"
+    assert report["compatible"] is True
+    assert report["warnings"] == []
+    assert not state_target.exists()
+    assert list(scratch.iterdir()) == []
+
+
+def test_verify_flags_legacy_and_revision_mismatch(tmp_path):
+    from tg_control.backup import verify_archive
+
+    key = Fernet.generate_key()
+    key_file = secret(tmp_path / "key", key)
+
+    legacy = _synthetic_archive(
+        tmp_path / "legacy.tgcbak", key, {"version": 1, "includes_state": False}
+    )
+    report = verify_archive(legacy, key_file)
+    assert report["manifest_version"] == 1
+    assert report["compatible"] is True
+    assert report["schema_revision"] is None
+    assert any("manifest v1" in warning for warning in report["warnings"])
+    assert not any("newer" in warning for warning in report["warnings"])
+
+    modern = _synthetic_archive(tmp_path / "modern.tgcbak", key, _manifest())
+    mismatched = verify_archive(modern, key_file, expected_schema_revision="0009_other")
+    assert mismatched["compatible"] is False
+    assert any("differs" in warning for warning in mismatched["warnings"])
+    unknown = verify_archive(legacy, key_file, expected_schema_revision="0009_other")
+    assert unknown["compatible"] is True
+    assert any("unknown" in warning for warning in unknown["warnings"])
+
+
+def test_verify_state_archive_requires_a_new_state_dir(tmp_path):
+    import base64
+    import io
+    import json
+    import tarfile
+    import uuid
+
+    from tg_control.backup import _EncryptWriter, _tar_file, verify_archive
+
+    key = Fernet.generate_key()
+    key_file = secret(tmp_path / "key", key)
+    account_id = str(uuid.uuid4())
+    archive = tmp_path / "state.tgcbak"
+    with archive.open("wb") as output:
+        writer = _EncryptWriter(output, base64.urlsafe_b64decode(key))
+        with tarfile.open(fileobj=writer, mode="w|") as tar:
+            raw = json.dumps(_manifest(includes_state=True)).encode()
+            _tar_file(tar, "manifest.json", io.BytesIO(raw), len(raw))
+            _tar_file(tar, "database.dump", io.BytesIO(b"dump"), 4)
+            payload = b"synthetic-encrypted-state"
+            _tar_file(tar, f"state/{account_id}/state.enc", io.BytesIO(payload), len(payload))
+        writer.finish()
+
+    report = verify_archive(archive, key_file)
+    assert report["state_accounts"] == 1
+    assert report["restore_state_dir_required"] is True
+    assert any("state-dir" in warning for warning in report["warnings"])
+    with_state = verify_archive(archive, key_file, state_dir=tmp_path / "target")
+    assert all("state-dir" not in warning for warning in with_state["warnings"])
+
+
+@pytest.mark.parametrize("failure", ["wrong_key", "tampered", "truncated", "not_a_backup"])
+def test_verify_rejects_unauthenticated_or_malformed_archives(tmp_path, failure):
+    from tg_control.backup import verify_archive
+
+    key = Fernet.generate_key()
+    key_file = secret(tmp_path / "key", key)
+    archive = _synthetic_archive(tmp_path / "archive.tgcbak", key, _manifest())
+    if failure == "wrong_key":
+        key_file = secret(tmp_path / "wrong", Fernet.generate_key())
+    elif failure == "tampered":
+        data = bytearray(archive.read_bytes())
+        data[len(data) // 2] ^= 0xFF
+        archive.write_bytes(bytes(data))
+    elif failure == "truncated":
+        archive.write_bytes(archive.read_bytes()[:-24])
+    else:
+        archive.write_bytes(b"not an encrypted backup at all")
+    with pytest.raises(BackupError):
+        verify_archive(archive, key_file)
+
+
+def test_verify_rejects_invalid_layout_and_dump(tmp_path):
+    from tg_control.backup import verify_archive
+
+    key = Fernet.generate_key()
+    key_file = secret(tmp_path / "key", key)
+    empty = _synthetic_archive(tmp_path / "empty.tgcbak", key, _manifest(), dump=b"")
+    with pytest.raises(BackupError, match="empty database dump"):
+        verify_archive(empty, key_file)
+    inconsistent = _synthetic_archive(
+        tmp_path / "inconsistent.tgcbak", key, _manifest(includes_state=True)
+    )
+    with pytest.raises(BackupError, match="invalid backup contents"):
+        verify_archive(inconsistent, key_file)
+
+
+def test_verify_cli_prints_report_and_fails_on_incompatibility(tmp_path, monkeypatch, capsys):
+    from tg_control.backup import main
+
+    key = Fernet.generate_key()
+    key_file = secret(tmp_path / "key", key)
+    archive = _synthetic_archive(tmp_path / "good.tgcbak", key, _manifest())
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+
+    base = [
+        "tg-control-backup",
+        "verify",
+        "--input",
+        str(archive),
+        "--backup-key-file",
+        str(key_file),
+        "--scratch-dir",
+        str(scratch),
+    ]
+    monkeypatch.setattr(sys, "argv", [*base, "--json"])
+    main()
+    assert '"integrity": "verified"' in capsys.readouterr().out
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [*base, "--expected-schema-revision", "0009_other"],
+    )
+    with pytest.raises(SystemExit) as exit_info:
+        main()
+    assert exit_info.value.code == 3
+    printed = capsys.readouterr().out
+    assert "Warning" in printed
+    assert list(scratch.iterdir()) == []

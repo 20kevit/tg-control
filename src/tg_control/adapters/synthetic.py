@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import copy
+import hashlib
 import time
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
-from .base import AdapterError, Chat, ChatKind, SessionStatus, SessionUnavailable
+from .base import AdapterError, Chat, ChatKind, SessionStatus, SessionUnavailable, Update
 from .synthetic_store import SyntheticStore
 
 
@@ -29,6 +30,7 @@ def _fixture(account_id: str, timestamp: float) -> _Account:
         "public-group": Chat("public-group", ChatKind.PUBLIC_GROUP, "Synthetic public group"),
         "private-group": Chat("private-group", ChatKind.PRIVATE_GROUP, "Synthetic private group"),
         "private-direct": Chat("private-direct", ChatKind.PRIVATE_DIRECT, "Synthetic direct chat"),
+        "saved-messages": Chat("saved-messages", ChatKind.PRIVATE_DIRECT, "Saved Messages"),
     }
     messages = {
         chat_id: [
@@ -99,8 +101,19 @@ class SyntheticAdapter:
         self._store = store
         self._clock = clock
         self._media_retention_days: int | None = 30
+        # Bounded per-account update buffer. Overflow drops the oldest entry and is
+        # counted; consumers must resume from durable storage, not from this queue.
+        self._updates: dict[str, deque[Update]] = defaultdict(deque)
+        self._update_drops: dict[str, int] = defaultdict(int)
+        self._closed = False
 
     async def close(self) -> None:
+        """Idempotent shutdown: the adapter refuses service afterwards.
+
+        Matches the boundary adapter contract, so a caller cannot keep using a
+        closed adapter by accident (for example after a failed restart).
+        """
+        self._closed = True
         if self._store:
             self._store.close()
 
@@ -137,18 +150,91 @@ class SyntheticAdapter:
         return count
 
     async def configure_media_retention(self, days: int | None) -> None:
-        if days is not None and days < 1:
+        if days is not None and (type(days) is not int or days < 1):
             raise ValueError("invalid media retention")
         async with self._lock:
             self._media_retention_days = days
 
     async def prune_media(self, account_id: str) -> int:
         async with self._lock:
+            if self._closed:
+                raise SessionUnavailable(intervention_required=True)
             account = copy.deepcopy(self._account(account_id))
             count = self._expire_media(account)
             if count:
                 self._commit(account_id, account)
             return count
+
+    UPDATE_BUFFER_LIMIT = 1000
+    UPDATE_TEXT_LIMIT = 4096
+
+    def _emit(
+        self,
+        account_id: str,
+        event_type: str,
+        chat_id: str | None,
+        payload: dict[str, Any],
+        upstream_id: str,
+    ) -> None:
+        buffer = self._updates[account_id]
+        if len(buffer) >= self.UPDATE_BUFFER_LIMIT:
+            buffer.popleft()
+            self._update_drops[account_id] += 1
+        occurred = self._clock()
+        buffer.append(
+            Update(
+                event_type=event_type,
+                account_id=account_id,
+                chat_id=chat_id,
+                payload=payload,
+                upstream_id=upstream_id,
+                occurred_at=occurred,
+            )
+        )
+
+    def _emit_message(
+        self,
+        account_id: str,
+        event_type: str,
+        chat_id: str,
+        message_id: int,
+        text: str | None,
+        media: dict[str, Any] | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {"message_id": message_id}
+        if text is not None:
+            payload["text"] = text[: self.UPDATE_TEXT_LIMIT]
+            payload["text_truncated"] = len(text) > self.UPDATE_TEXT_LIMIT
+        if event_type == "message.new":
+            payload["has_media"] = media is not None
+            if media is not None:
+                payload["media_kind"] = str(media.get("content_type"))[:127]
+            payload["sender_ref"] = "self"
+        self._emit(account_id, event_type, chat_id, payload, f"{chat_id}:{message_id}:{event_type}")
+
+    def inject_update(self, update: Update) -> None:
+        """Test-only fixture hook; never exposed through a client interface."""
+        if update.account_id not in self._accounts and self._store is None:
+            self._account(update.account_id)
+        self._emit(
+            update.account_id,
+            update.event_type,
+            update.chat_id,
+            dict(update.payload),
+            update.upstream_id or "fixture",
+        )
+
+    async def drain_updates(self, account_id: str, limit: int = 100) -> list[Update]:
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            # Normalized like every other adapter rejection: callers map
+            # AdapterError to a typed API/MCP error, ValueError would be a 500.
+            raise AdapterError("unsupported_operation")
+        async with self._lock:
+            if self._closed:
+                raise SessionUnavailable(intervention_required=True)
+            self._check(account_id, "drain_updates")
+            buffer = self._updates[account_id]
+            return [buffer.popleft() for _ in range(min(limit, len(buffer)))]
 
     def inject_fault(self, account_id: str, operation: str, error: Exception) -> None:
         """Test-only hook, never exposed through any client interface."""
@@ -163,11 +249,15 @@ class SyntheticAdapter:
 
     async def status(self, account_id: str) -> SessionStatus:
         async with self._lock:
+            if self._closed:
+                raise SessionUnavailable(intervention_required=True)
             state = self._account(account_id).state
             return SessionStatus(state, state == "reauth_required")
 
     async def reconnect(self, account_id: str) -> SessionStatus:
         async with self._lock:
+            if self._closed:
+                raise SessionUnavailable(intervention_required=True)
             account = copy.deepcopy(self._account(account_id))
             if account.state == "reauth_required":
                 raise SessionUnavailable(True)
@@ -176,6 +266,8 @@ class SyntheticAdapter:
             return SessionStatus("ready")
 
     def _check(self, account_id: str, operation: str) -> _Account:
+        if self._closed:
+            raise SessionUnavailable(intervention_required=True)
         account = self._account(account_id)
         if account.state != "ready":
             raise SessionUnavailable(account.state == "reauth_required")
@@ -191,6 +283,14 @@ class SyntheticAdapter:
     async def get_chat(self, account_id: str, chat_id: str) -> Chat | None:
         async with self._lock:
             return self._check(account_id, "get_chat").chats.get(chat_id)
+
+    async def self_chat(self, account_id: str) -> Chat:
+        async with self._lock:
+            account = self._check(account_id, "self_chat")
+            chat = account.chats.get("saved-messages")
+            if chat is None:  # pragma: no cover - fixture invariant
+                raise AdapterError("not_found")
+            return chat
 
     async def execute(
         self, account_id: str, operation: str, chat_id: str, params: dict[str, Any]
@@ -261,19 +361,34 @@ class SyntheticAdapter:
                 account.next_id += 1
                 messages.append({"id": new_id, "chat_id": chat_id, "text": text, "media": media})
                 self._commit(account_id, account)
+                self._emit_message(account_id, "message.new", chat_id, new_id, text, media)
                 return {"message_id": new_id}
             if operation == "edit":
                 find(params["message_id"])["text"] = params["text"]
                 self._commit(account_id, account)
+                self._emit_message(
+                    account_id, "message.edited", chat_id, params["message_id"], params["text"]
+                )
                 return {"message_id": params["message_id"]}
             if operation == "delete":
                 messages.remove(find(params["message_id"]))
                 self._commit(account_id, account)
+                self._emit_message(
+                    account_id, "message.deleted", chat_id, params["message_id"], None
+                )
                 return {"message_id": params["message_id"]}
             if operation == "set_title":
                 old = account.chats[chat_id]
                 account.chats[chat_id] = Chat(old.id, old.kind, params["title"])
                 self._commit(account_id, account)
+                self._emit(
+                    account_id,
+                    "chat.updated",
+                    chat_id,
+                    {"title": params["title"][:256]},
+                    f"{chat_id}:title:"
+                    + hashlib.sha256(params["title"].encode("utf-8")).hexdigest()[:32],
+                )
                 return {"updated": True}
             if operation == "set_member_status":
                 account.members.setdefault(chat_id, {})[params["member_id"]] = params["status"]

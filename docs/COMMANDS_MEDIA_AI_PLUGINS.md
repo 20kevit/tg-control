@@ -2,6 +2,22 @@
 
 Status: command/media foundations are required. AI task infrastructure is required, but live Telegram-derived AI execution is compliance-blocked. Plugin foundations are required before third-party modules. Optional user-facing modules remain Candidates unless listed as Confirmed in PRD.md.
 
+## Implementation status (2026-11-07)
+
+| Contract area | State | Evidence |
+|---|---|---|
+| 1.1 Command model, registry, explicit invocation | Implemented for the single approved command | `src/tg_control/commands.py` (`COMMANDS`, `CommandRouter.catalog`); `tests/test_commands.py::test_command_catalog_is_explicit`, `test_unknown_command_is_rejected` |
+| 1.2 Reply context, same-account resolution, typed errors | Implemented | `CommandRouter._read_message`; `test_save_resolves_reply_in_selected_account_only`, `test_save_missing_reply_and_invalid_input` |
+| 1.3 `/save` end-to-end | Implemented (synthetic) | `CommandRouter._save`; `tests/test_commands.py`, `tests/test_commands_api.py`; every listed error class has a test except a dedicated authenticated timeout (covered at Core level) |
+| 2.1–2.2 Media transfer contract | Partially implemented | `src/tg_control/media.py`; streaming/chunking, validation, checksums, quotas, staging, cancellation, TTL cleanup, reauthorization guard. Not implemented: client-facing byte streaming (ADR-015 records why this needs a route contract first), persistent resume checkpoints, checksum-based deduplication |
+| 2.3 Media processing (transcription/OCR/etc.) | Not implemented (Candidate) | requires explicit task invocation and remains compliance-blocked |
+| 3.1–3.2 AI task adapters | Implemented for the contract (synthetic) | `src/tg_control/ai.py`: strict schemas, capability-declared providers, explicit selection, budgets, timeout/cancellation, retry rules, output validation, sanitized audit; `tests/test_ai.py`, `tests/test_ai_api.py` |
+| 3.3 AI utility catalog | Intentionally empty (Candidate) | application registers no task; `GET /v1/ai/tasks` returns `[]`; `test_catalog_has_no_approved_utility_by_default` |
+| 4.1–4.3 Plugin manifest, lifecycle, capability grants | Implemented (first-party) | `src/tg_control/plugins.py`: strict manifest, install-without-execution, explicit grants, module binding, delegated-client execution, capability checks, rate/timeout containment, quarantine; `tests/test_plugins.py`, `tests/test_plugins_api.py` |
+| 5 Candidate modules | Not approved | no user-facing candidate is activated; the AI catalog is empty and no plugin is installed |
+
+Limits: no incoming-message trigger exists by design; the media pipeline has no HTTP streaming download or persisted resume checkpoints (ADR-015 — media bytes travel only inside authorized JSON reads); `/save` supports only the synthetic adapter's already-materialized media; AI providers are synthetic only and no utility is approved; plugins are first-party in-process modules with no sandbox or remote distribution.
+
 ## 1. Reply-aware command router
 
 ### 1.1 Command model
@@ -158,3 +174,9 @@ Shared foundations above should support these modules. Do not add autonomous bac
 - AI: provider contract conformance, exact-input-only, explicit invocation, no background invocation, output validation, budgets/timeouts/cancel, provider failure, revocation, synthetic-only enforcement.
 - Plugins: manifest validation, compatibility, capability denial, disabled/degraded states, failure isolation, resource limits, audit, and no Core/Policy bypass.
 - Candidate modules remain visibly unapproved until owner confirms their user-facing behavior.
+
+### Wave update (2026-11-07): AI contracts and first-party plugins
+
+- AI task contract: implemented as provider-independent infrastructure only. `src/tg_control/ai.py` defines strict task input/output models, provider capability declarations, explicit provider selection, budgets (input size and estimated cost), timeouts, cancellation, conservative retry rules, output validation, usage reporting and sanitized audit. The application registers no task; `GET /v1/ai/tasks` is empty and every unapproved utility remains a Candidate. Telegram-derived input is rejected structurally and no configuration flag can enable it.
+- Plugin manifest and registry: implemented for first-party modules. `src/tg_control/plugins.py` validates manifests (semver, known extension points and capabilities, budgets, `$secret:` references, no admin capability), requires explicit owner grants and a bound module before enable, executes through Core under one delegated client, and contains failures with timeouts, per-minute rate limits, failure counters and quarantine.
+- Not implemented or not approved: real AI providers or utilities, cost accounting storage, remote plugin distribution/signing, marketplace, process-level plugin sandboxing, MCP/CLI/UI exposure of these surfaces, live Telegram data and deployment. No live integration has been verified.

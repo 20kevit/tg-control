@@ -43,9 +43,14 @@ Every feature matrix row identifies status and links to implementation and tests
 | Events/jobs/workflows | EVENTS_JOBS_WORKFLOWS.md | Event delivery, durable jobs, scheduling, workflow execution |
 | Commands/media/AI/plugins | COMMANDS_MEDIA_AI_PLUGINS.md | Command routing, /save, transfer, AI task adapters, plugin lifecycle |
 | Compliance | COMPLIANCE.md | Telegram terms, AI data-use restrictions, release gates |
-| Delivery/evidence | ROADMAP.md, STATUS.md, ACCEPTANCE.md, TESTING.md | Stages, traceability, tests, blockers |
+| Deployment | DEPLOYMENT.md, compose.yaml, Dockerfile, .env.example | Images, volumes, health, migration policy, failure modes, blocked checks |
+| Backup/disaster recovery | BACKUP_RESTORE.md, OPERATIONS.md | Archive format, verification, restore drill, guarantees |
+| Release engineering | RELEASE_PROCESS.md, scripts/build_release.py | Version/provenance, artifact naming, compatibility, rollback, approval gates |
+| Delivery/evidence | ROADMAP.md, STATUS.md, ACCEPTANCE.md, TESTING.md, TRACEABILITY.md | Stages, requirement-to-code-to-test traceability, tests, blockers |
 
 When a contract is implemented, update its source document and linked API/help/acceptance material in the same change.
+
+`TRACEABILITY.md` is machine-checked: `tests/test_traceability.py` fails if a listed implementation file or test function disappears, if a test file is missing from the matrix, or if a row's evidence label is outside the allowed vocabulary. Every row carries Requirement → Contract → Implementation → Test → Executed evidence, and each row is labelled **Implemented**, **Locally tested**, **Container-tested**, **Hosted-CI-tested**, **Not tested**, **Blocked** or **Requires owner action**. `Container-tested` and `Hosted-CI-tested` are reserved for rows backed by a real container run or a real hosted-CI run in `STATUS.md`; the current matrix uses neither. Regenerate the matrix with `python scripts/gen_traceability.py` when tests change.
 
 ## Confirmed product scope
 
@@ -107,3 +112,11 @@ The confirmed product is complete only when:
 - Real-data/release items remain blocked until compliance and owner gates are satisfied.
 
 Current state and next executable stage are in STATUS.md and ROADMAP.md.
+
+## Machine-checked interface contracts (2026-11-07)
+
+`src/tg_control/contracts.py` is the single registry of versioned operations: `name`, `principal` (`client` or `owner`), Gateway Core entry point, allowed error codes, HTTP binding, MCP tool and CLI command, pagination flag and audit flag. `scripts/gen_contracts.py` writes `docs/contracts/interfaces.json` (72 operations at this revision); `scripts/check_interfaces.py` is the CI gate and fails when the committed matrix is stale, when a registered MCP tool or CLI command is missing from the live catalogs, when a binding is duplicated, or when an owner-plane operation is exposed as an MCP tool. `tests/test_contracts.py` additionally boots the app to prove that every registry row is bound to a live route, that schema/argument models exist, that paginated operations expose a cursor parameter, and that error codes normalize consistently. Requirements map to contracts, implementation and executed tests in `docs/TRACEABILITY.md`; `tests/test_traceability.py` fails on a missing path, missing test function, unlisted test file or a live-evidence claim.
+
+`scripts/ci.sh` chains dependency validation, lint, the contract gate, the traceability completeness check and the full test suite; it is the single command an operator or a future hosted CI job runs.
+
+Compatibility is additive within `/v1`: a change that removes or renames an operation, narrows a required field, changes an error code or drops an interface binding must update the registry and the committed matrix in the same commit, and the gate makes the change reviewable rather than silent. `GET /openapi.json` remains the machine-readable HTTP schema and requires an authenticated owner or client credential.

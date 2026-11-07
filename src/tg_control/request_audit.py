@@ -31,7 +31,10 @@ class RequestAudit:
         ):
             await self.app(scope, receive, send)
             return
-        request_id = str(uuid.uuid4())
+        # The outermost observability middleware may already have assigned a
+        # correlation id; reuse it so logs, audit and the client header agree.
+        existing = scope.get("state", {}).get("request_id")
+        request_id = str(existing) if isinstance(existing, str) and existing else str(uuid.uuid4())
         event = (
             "health_request"
             if path.startswith("/health/")
@@ -39,7 +42,9 @@ class RequestAudit:
             if path == "/openapi.json"
             else "http_request"
         )
-        scope.setdefault("state", {})["request_id"] = request_id
+        state = scope.setdefault("state", {})
+        state["request_id"] = request_id
+        state["request_audit_started"] = True
         context_token = request_id_context.set(request_id)
         actor_kind, actor_id = "anonymous", None
         try:
@@ -153,7 +158,7 @@ class BoundaryAudit:
                 scope["type"] == "http"
                 and message["type"] == "http.response.start"
                 and message["status"] in {400, 403, 413}
-                and not scope.get("state", {}).get("request_id")
+                and not scope.get("state", {}).get("request_audit_started")
             ):
                 try:
                     with self.sessions() as session:
