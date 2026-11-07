@@ -93,3 +93,23 @@ def revoke_client(session: Session, client_id: str) -> None:
         .where(Credential.client_id == client_id, Credential.revoked.is_(False))
         .values(revoked=True, revoked_at=now())
     )
+
+
+def active_principal(session: Session, client_id: str) -> Principal | None:
+    """Resolve the single active credential for an explicitly named client.
+
+    Used only by owner-delegated command execution, which applies that client's
+    policy instead of bypassing the Policy Engine. Returns None when the client is
+    disabled or has no active credential.
+    """
+    client = session.get(Client, client_id)
+    if client is None or not client.enabled:
+        return None
+    credential = session.scalar(
+        select(Credential).where(
+            Credential.client_id == client.id, Credential.revoked.is_(False)
+        )
+    )
+    if credential is None:
+        return None
+    return Principal(client.id, credential.id)

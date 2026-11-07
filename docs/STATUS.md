@@ -20,6 +20,16 @@ Analytical completion estimates (not repository metrics): approximately 70–75%
 - Verification: `.venv/bin/pytest -q` — **264 passed, one optional native probe skipped**, one benign `XDG_RUNTIME_DIR` warning; `ruff check src tests alembic scripts` passed. Tests use disposable SQLite databases, an injected clock and synthetic fixtures only.
 - Limitations: pull-based delivery only (no webhook/SSE/WebSocket transport, no OAuth); one scheduler process (leases protect restarts, not multi-worker deployment); dead-letter replay is owner-driven; no owner UI for jobs/events; workflows, commands/media, AI tasks and plugins remain unimplemented; real Telegram data, live AI processing, deployment, independent security review and the legal gate remain open and blocked.
 
+
+## Shared command router, /save and media pipeline (2026-11-07)
+
+- Added a single reply-aware command router with an explicit catalog. `/save` resolves the replied-to message inside the selected account through Gateway Core, stages media through the shared pipeline, and sends text/caption plus media to that account's server-resolved Saved Messages chat through the same Core write path. Reads require source Read, the send requires destination Write, the caller's idempotency key prevents a second save, and audit holds identifiers/outcomes only.
+- Added the media pipeline: chunk-based staging, private server-owned paths (`O_EXCL|O_NOFOLLOW`, 0600, atomic rename), filename and MIME allowlist with signature checks, SHA-256 verification after staging, per-file/per-account/total/concurrency quotas, guarded reauthorization during staging, cancellation-safe cleanup and TTL/startup/hourly removal.
+- Exposed `GET /v1/commands`, `POST /v1/commands/save` and owner-delegated `POST /v1/admin/commands/save` (applies the named client's policy; no bypass). The synthetic adapter gained a server-resolved Saved Messages chat and `self_chat`.
+- Files: `src/tg_control/{commands,media}.py`, `src/tg_control/{api,auth,config}.py`, `src/tg_control/adapters/{base,synthetic}.py`, `tests/{test_media,test_commands,test_commands_api}.py`, `docs/{ADR,API,ARCHITECTURE,DATA_MODEL,COMMANDS_MEDIA_AI_PLUGINS,ACCEPTANCE,TESTING,ROADMAP}.md`. No migration was added and no existing database changed.
+- Verification: `.venv/bin/pytest -q` — **288 passed, one optional native probe skipped**, one benign `XDG_RUNTIME_DIR` warning; `ruff check src tests alembic scripts` passed. All fixtures and staged bytes are synthetic.
+- Limitations: only `/save` is registered; there is no client-facing streaming download or resumable transfer; the synthetic adapter supplies one in-memory chunk, so real TDLib streaming is unverified; AI tasks, workflows and plugins remain unimplemented; live Telegram data/AI, deployment and the legal gate remain blocked.
+
 ## Material open work
 
 1. Native TDLib adapter integration, authorization state machine, update/synchronization loop, session recovery, actual history/search semantics, media transfer, and asynchronous send terminal outcomes. This work may be developed and tested with offline/synthetic harnesses only; no real account login or real data.
@@ -27,7 +37,7 @@ Analytical completion estimates (not repository metrics): approximately 70–75%
 3. Remote MCP OAuth/discovery/authorization and ChatGPT connector interoperability remain unimplemented/unverified; static bearer auth is not OAuth.
 4. Docker/Compose runtime build/start and image provenance/scanning remain unverified; configuration has static checks only.
 5. Independent security review, production identity/MFA and auth throttling, external heartbeat/alert delivery, automated retention/pruning, key rotation/recovery, production restore drills, and multi-worker support remain open.
-6. Events and durable jobs are implemented and tested synthetically (see the 2026-11-07 entry). Workflow, command/`/save`, media, AI-task and plugin foundations remain unimplemented; the contracts exist and must not be reported as complete.
+6. Events, durable jobs, the media pipeline and the `/save` command are implemented and tested synthetically (see the 2026-11-07 entries). Workflow, AI-task and plugin foundations remain unimplemented; the contracts exist and must not be reported as complete.
 7. User-facing candidate modules from competitor research are not approved by default. Implement shared foundations; wait for owner confirmation before activating optional candidates.
 8. Release and real-data operation remain blocked by compliance and explicit owner approval.
 

@@ -30,6 +30,7 @@ def _fixture(account_id: str, timestamp: float) -> _Account:
         "public-group": Chat("public-group", ChatKind.PUBLIC_GROUP, "Synthetic public group"),
         "private-group": Chat("private-group", ChatKind.PRIVATE_GROUP, "Synthetic private group"),
         "private-direct": Chat("private-direct", ChatKind.PRIVATE_DIRECT, "Synthetic direct chat"),
+        "saved-messages": Chat("saved-messages", ChatKind.PRIVATE_DIRECT, "Saved Messages"),
     }
     messages = {
         chat_id: [
@@ -263,6 +264,14 @@ class SyntheticAdapter:
     async def get_chat(self, account_id: str, chat_id: str) -> Chat | None:
         async with self._lock:
             return self._check(account_id, "get_chat").chats.get(chat_id)
+
+    async def self_chat(self, account_id: str) -> Chat:
+        async with self._lock:
+            account = self._check(account_id, "self_chat")
+            chat = account.chats.get("saved-messages")
+            if chat is None:  # pragma: no cover - fixture invariant
+                raise AdapterError("not_found")
+            return chat
 
     async def execute(
         self, account_id: str, operation: str, chat_id: str, params: dict[str, Any]

@@ -2,6 +2,22 @@
 
 Status: command/media foundations are required. AI task infrastructure is required, but live Telegram-derived AI execution is compliance-blocked. Plugin foundations are required before third-party modules. Optional user-facing modules remain Candidates unless listed as Confirmed in PRD.md.
 
+## Implementation status (2026-11-07)
+
+| Contract area | State | Evidence |
+|---|---|---|
+| 1.1 Command model, registry, explicit invocation | Implemented for the single approved command | `src/tg_control/commands.py` (`COMMANDS`, `CommandRouter.catalog`); `tests/test_commands.py::test_command_catalog_is_explicit`, `test_unknown_command_is_rejected` |
+| 1.2 Reply context, same-account resolution, typed errors | Implemented | `CommandRouter._read_message`; `test_save_resolves_reply_in_selected_account_only`, `test_save_missing_reply_and_invalid_input` |
+| 1.3 `/save` end-to-end | Implemented (synthetic) | `CommandRouter._save`; `tests/test_commands.py`, `tests/test_commands_api.py`; every listed error class has a test except a dedicated authenticated timeout (covered at Core level) |
+| 2.1–2.2 Media transfer contract | Partially implemented | `src/tg_control/media.py`; streaming/chunking, validation, checksums, quotas, staging, cancellation, TTL cleanup, reauthorization guard. Not implemented: resumability, client-facing byte streaming, checksum-based deduplication |
+| 2.3 Media processing (transcription/OCR/etc.) | Not implemented (Candidate) | requires explicit task invocation and remains compliance-blocked |
+| 3.1–3.2 AI task adapters | Not implemented | contract only; no provider code exists |
+| 3.3 AI utility catalog | Not implemented (Candidate) | no utility is approved |
+| 4.1–4.3 Plugin manifest, lifecycle, capability grants | Not implemented | contract only; no plugin code exists |
+| 5 Candidate modules | Not approved | no user-facing candidate is activated |
+
+Limits: no incoming-message trigger exists by design; the media pipeline has no resumable transfer or HTTP streaming download; `/save` supports only the synthetic adapter's already-materialized media.
+
 ## 1. Reply-aware command router
 
 ### 1.1 Command model

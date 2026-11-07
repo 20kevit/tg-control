@@ -137,6 +137,10 @@ class TelegramAdapter(Protocol):
 
     async def get_chat(self, account_id: str, chat_id: str) -> Chat | None: ...
 
+    async def self_chat(self, account_id: str) -> Chat:
+        """The account's Saved Messages chat. Resolved server-side, never caller-supplied."""
+        ...
+
     async def execute(
         self, account_id: str, operation: str, chat_id: str, params: dict[str, Any]
     ) -> dict[str, Any]: ...

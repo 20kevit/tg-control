@@ -31,6 +31,7 @@ class Settings:
     operation_timeout_seconds: float = 30.0
     max_request_bytes: int = 2 * 1024 * 1024
     synthetic_state_dir: Path | None = None
+    media_staging_dir: Path | None = None
 
     def __post_init__(self) -> None:
         if len(self.owner_token) < 32:
@@ -65,6 +66,7 @@ class Settings:
             if x.strip()
         )
         state_dir = os.getenv("TG_SYNTHETIC_STATE_DIR")
+        staging_dir = os.getenv("TG_MEDIA_STAGING_DIR")
         return cls(
             database_url,
             owner,
@@ -72,4 +74,5 @@ class Settings:
             hosts,
             origins,
             synthetic_state_dir=Path(state_dir) if state_dir else None,
+            media_staging_dir=Path(staging_dir) if staging_dir else None,
         )

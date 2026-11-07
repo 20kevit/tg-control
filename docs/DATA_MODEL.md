@@ -21,3 +21,11 @@ The `session_monitor_v1` setting stores the most recently observed normalized st
 ## Jobs and execution history (migration `0006`)
 
 `jobs` stores the registered `kind`, versioned strict `input` (≤ 4 KiB, no credentials or message bodies), creator `client_id`/`credential_id`, account, schedule (`once` with an aware `run_at`, or `daily_local` with IANA zone and local time), misfire policy/grace, state, attempts, deadline, lease owner/expiry, pause and cancel flags, last sanitized error, bounded result and unique idempotency key. `job_runs` keeps one bounded row per attempt (state, worker, timings, error code, unknown-outcome flag). Neither table stores message text from previous runs.
+
+## Media staging
+
+Staged media bytes are not stored in PostgreSQL. They live under a private staging root in per-account UUID directories with server-generated names, mode 0600, written to a `.part` file and atomically renamed after size/signature/SHA-256 verification. Metadata (filename, content type, size, checksum, account) exists only in process memory for the duration of a transfer and is discarded on release. Files expire after the staging TTL and are removed on failure, cancellation, release and startup/hourly cleanup. Backups do not capture staged bytes.
+
+## Command audit
+
+`command_save` audit events store the account, source chat and decision/error code. Message text, captions, filenames, media checksums and staging identifiers are never written to audit, logs or MCP responses.

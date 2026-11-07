@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import tempfile
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -26,7 +28,15 @@ from . import audit
 from .adapters.base import TelegramAdapter
 from .adapters.synthetic import SyntheticAdapter
 from .adapters.synthetic_store import SyntheticStore
-from .auth import Principal, authenticate, revoke_client, rotate_credential, verify_owner
+from .auth import (
+    Principal,
+    active_principal,
+    authenticate,
+    revoke_client,
+    rotate_credential,
+    verify_owner,
+)
+from .commands import CommandError, CommandRouter, SaveRequest
 from .config import Settings
 from .core import BatchRejected, Gateway
 from .db import (
@@ -44,13 +54,18 @@ from .instance_guard import InstanceGuard, InstanceGuardBoundary
 from .job_kinds import register_first_party_kinds
 from .jobs import JobError, Jobs, Schedule
 from .mcp_server import RemoteBackend, create_mcp_server
+from .media import MediaPipeline
 from .monitoring import SessionMonitorProgress
-from .policy import GrantInput
+from .policy import ChatId, GrantInput
 from .request_audit import BoundaryAudit, RequestAudit, request_id_context
 from .schemas import Batch
 from .security import SecurityBoundary
 
 SESSION_MONITOR_INTERVAL_SECONDS = 60
+MEDIA_CLEANUP_INTERVAL_SECONDS = 3600
+# Staged media is private and ephemeral unless an explicit directory is configured.
+_default_staging = Path(tempfile.mkdtemp(prefix="tg-control-media-"))
+os.chmod(_default_staging, 0o700)
 EVENT_INGEST_INTERVAL_SECONDS = 10
 SCHEDULER_INTERVAL_SECONDS = 15
 
@@ -105,6 +120,14 @@ class EventPauseRequest(StrictModel):
     paused: bool
 
 
+class OwnerSaveRequest(StrictModel):
+    client_id: UUID
+    account_id: UUID
+    chat_id: ChatId
+    message_id: Annotated[int, Field(strict=True, ge=1)]
+    idempotency_key: UUID
+
+
 class JobCreateRequest(StrictModel):
     kind: Annotated[str, Field(min_length=1, max_length=48)]
     input: dict = Field(default_factory=dict)
@@ -137,6 +160,15 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     selected_adapter = adapter if adapter is not None else SyntheticAdapter(store)
     gateway = Gateway(
         sessions, selected_adapter, timeout_seconds=settings.operation_timeout_seconds
+    )
+    staging_dir = settings.media_staging_dir or _default_staging
+    media = MediaPipeline(staging_dir)
+    commands = CommandRouter(
+        gateway,
+        selected_adapter,
+        media,
+        sessions,
+        timeout_seconds=settings.operation_timeout_seconds,
     )
     events = EventService(
         sessions, selected_adapter, timeout_seconds=settings.operation_timeout_seconds
@@ -178,6 +210,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                 retention.cache_ttl_seconds, retention.media_retention_days
             )
             await gateway.maintain_media()
+            media.cleanup()
             # Resolve any work whose previous owner died before the scheduler starts.
             jobs.recover_expired_leases()
 
@@ -195,6 +228,12 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                         )
                     ticks += 1
                     if ticks % 60 == 0:
+                        try:
+                            media.cleanup()
+                        except Exception:
+                            logging.getLogger("tg_control.maintenance").error(
+                                "media staging cleanup failed"
+                            )
                         try:
                             await gateway.maintain_media()
                         except Exception:
@@ -281,6 +320,8 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     app.state.sessions = sessions
     app.state.settings = settings
     app.state.events = events
+    app.state.media = media
+    app.state.commands = commands
     app.state.jobs = jobs
 
     def record_auth_failure() -> None:
@@ -353,6 +394,10 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     @app.exception_handler(BatchRejected)
     async def batch_error(_request: Request, exc: BatchRejected):
         return JSONResponse({"error": exc.code, "items": exc.items}, status_code=exc.status_code)
+
+    @app.exception_handler(CommandError)
+    async def command_error(_request: Request, exc: CommandError):
+        return JSONResponse(exc.as_body(), status_code=exc.status_code)
 
     @app.exception_handler(EventError)
     async def event_error(_request: Request, exc: EventError):
@@ -783,6 +828,45 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
             owner_audit(session, "job_recover")
             session.commit()
         return {"recovered": result}
+
+    # -- reply-aware commands --------------------------------------------
+
+    @app.get("/v1/commands")
+    async def command_catalog(principal: Principal = Depends(client_principal)):
+        return {"commands": commands.catalog()}
+
+    @app.post("/v1/commands/save")
+    async def save_reply(
+        data: SaveRequest, principal: Principal = Depends(client_principal)
+    ):
+        return await commands.invoke(
+            principal,
+            "save",
+            data,
+            actor_kind="client",
+            request_id=request_id_context.get(),
+        )
+
+    @app.post("/v1/admin/commands/save", dependencies=[Depends(owner)])
+    async def owner_save_reply(data: OwnerSaveRequest):
+        # Owner invocation applies the explicitly named client's policy; it is not
+        # a policy bypass and cannot exceed that client's Read/Write grants.
+        with sessions() as session:
+            principal = active_principal(session, str(data.client_id))
+        if principal is None:
+            raise HTTPException(status_code=404, detail="client_not_found")
+        return await commands.invoke(
+            principal,
+            "save",
+            SaveRequest(
+                account_id=data.account_id,
+                chat_id=data.chat_id,
+                message_id=data.message_id,
+                idempotency_key=data.idempotency_key,
+            ),
+            actor_kind="owner",
+            request_id=request_id_context.get(),
+        )
 
     @app.get("/", include_in_schema=False)
     async def index():
