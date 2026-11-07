@@ -16,3 +16,20 @@ This matrix distinguishes exercised **synthetic-only** capabilities from the req
 | Owner notification | While the gateway runs, a bounded background monitor records deduplicated synthetic session transitions and recovery in PostgreSQL/SQLite; the open panel displays recent events, current warnings and process-local monitor progress, and clears them on lock (`test_session_monitor.py`, `test_monitor_progress.py`, `test_postgres_api.py`, `test_browser.py`). | No push/email/SMS delivery, monitoring while the gateway is stopped, readiness/external-heartbeat signal, automatic stale threshold, or real TDLib session alerts; polling may miss brief transitions. |
 
 The current full suite is documented in `STATUS.md`; the optional native ABI probe was also run successfully in an earlier 61-test version of the suite with networking blocked. Repeat the commands in `TESTING.md`; that optional probe is skipped without a trusted built library. Completion/release requires resolving every applicable outstanding item, not merely the synthetic rows.
+
+
+## Required foundations not yet evidenced as complete
+
+The following domains have authoritative contracts but must not be claimed implemented merely because the contract documents exist:
+
+| Domain | Required synthetic acceptance evidence |
+|---|---|
+| Events | Envelope/version validation, deduplication, ordering caveats, durable inbox/outbox, subscriptions, per-client policy recheck, cursors/replay, acknowledgements, retry, dead-letter, backpressure |
+| Jobs/scheduler | Complete state-transition matrix, restart recovery, DST/misfire, pause/resume/cancel, stale claims, permission recheck, idempotency, no retry for unknown effects |
+| Workflows | Typed trigger/condition/action validation, no implicit message trigger, loop prevention, per-step authorization, dry-run, partial failure, immutable run version, restart recovery |
+| Command Router and /save | Shared routing, explicit invocation, reply resolution, same-account Saved Messages target, captions/filenames, Core/Policy/Media/Audit path, failure and duplicate cases |
+| Media | Streaming, quotas, MIME/signature checks, checksum, safe staging, cleanup, resumability, retention, revocation during transfer, unknown upload result |
+| AI tasks | Provider-independent contract, explicit invocation, exact input scope, output validation, budgets/timeouts/cancel, fake provider tests, hard compliance gate |
+| Plugins | Manifest/version compatibility, capability grants, lifecycle, health, failure isolation, resource limits, audit, no Core/Policy bypass |
+
+See EVENTS_JOBS_WORKFLOWS.md and COMMANDS_MEDIA_AI_PLUGINS.md. These rows are outstanding until implementation and executed tests are linked.
