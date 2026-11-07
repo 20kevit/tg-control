@@ -85,6 +85,14 @@ Run the interface gate exactly as CI would:
 
 `tests/test_property_boundaries.py` uses a fixed seed and a hostile corpus (no property-testing dependency is installed): error-code normalization, cursor round-trip plus every single-character tamper, foreign-scope/foreign-key rejection, metric label and outcome bounding, nested log redaction (including a regression for redaction that previously stopped at the top level), and throttle invariants. `tests/test_migrations.py` additionally proves a `downgrade -1` / `upgrade head` cycle on a disposable SQLite database, and `tests/test_workflows.py` / `tests/test_plugins.py` prove the in-flight concurrency caps refuse (`429`) rather than queue.
 
+## One-command local CI gate
+
+```sh
+PYTHON=.venv/bin/python scripts/ci.sh
+```
+
+The script runs, in order and failing closed: `pip check`, `ruff check src tests alembic scripts`, `scripts/check_interfaces.py`, a traceability completeness check (every `tests/test_*.py` must appear in `docs/TRACEABILITY.md`) and the full pytest suite. It is the same gate a hosted CI job would run; this repository has no `.github/workflows`, so the script is the authoritative automated check rather than a claim of hosted CI.
+
 ## Exact commands and current result
 
 ```sh
