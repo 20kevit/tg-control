@@ -241,10 +241,21 @@ for path in /health/live /health/ready /health/dependencies; do
     -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8000$path" || true)"
   [ "$STATUS" = "503" ] || fail "expected 503 from $path without a database, got $STATUS"
 done
+log "guard loss is latched: the database returning must not silently re-arm the gateway"
 docker compose start db
+for _ in $(seq 1 10); do
+  STATUS="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
+    -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/health/ready || true)"
+  if [ "$STATUS" = "200" ]; then
+    fail "gateway reacquired the instance guard after a database outage without a restart"
+  fi
+  sleep 2
+done
+log "documented recovery: restart after guard loss"
+docker compose restart gateway
 for _ in $(seq 1 60); do
   if health /health/ready >/dev/null 2>&1; then break; fi
   sleep 2
 done
-health /health/ready >/dev/null || fail "gateway did not recover readiness after the database returned"
+health /health/ready >/dev/null || fail "gateway did not become ready after the documented restart"
 log "container smoke test completed successfully"

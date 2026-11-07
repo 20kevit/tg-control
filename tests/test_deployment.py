@@ -232,6 +232,12 @@ def test_hosted_ci_workflow_is_pinned_least_privilege_and_runs_the_local_gate():
     assert "sudo chown -R 10001:10001 secrets" in deployment_doc
     assert "secret file unreadable" in deployment_doc
 
+    # Guard loss is latched: the smoke test proves no silent re-arm and that the
+    # documented restart restores service.
+    assert "reacquired the instance guard after a database outage" in smoke
+    assert "documented recovery: restart after guard loss" in smoke
+    assert "gateway did not become ready after the documented restart" in smoke
+
     # Secrets are captured while readable and never re-read after the chown.
     assert 'DATABASE_URL_VALUE="$(cat secrets/database_url)"' in smoke
     assert 'value="$(cat "$secret")"' not in smoke

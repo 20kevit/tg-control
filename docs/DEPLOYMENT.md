@@ -298,5 +298,6 @@ real evidence.
 | readiness `503`, liveness `200` | database down or schema drift | `docker compose ps`, `docker compose logs db` |
 | container restarts repeatedly | startup rejection (see logs) | fix configuration; the gateway is designed to fail closed |
 | permission denied on `state/` | bind mount not owned by 10001 | `sudo chown -R 10001:10001 state` |
+| readiness stays 503 after the database came back | the single-instance guard is latched as lost (ADR-005) and is never reacquired silently | restart the gateway: `docker compose restart gateway` |
 | preflight reports `secret file unreadable` (or the gateway exits 1 on start) | secret files are 0600 and owned by the invoking user, but Compose bind-mounts them into a UID-10001 container | `sudo chown -R 10001:10001 secrets && chmod 700 secrets && chmod 400 secrets/*` |
 | `instance_guard lost` in diagnostics | a second instance is running | stop the duplicate; single-instance only |
