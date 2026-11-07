@@ -201,3 +201,14 @@ def test_ephemeral_media_staging_uses_a_lower_headroom_threshold(tmp_path, monke
     statuses = {check["name"]: check["status"] for check in report.checks}
     assert statuses["TG_SYNTHETIC_STATE_DIR"] == "fail"
     assert statuses["TG_MEDIA_STAGING_DIR"] == "pass"
+
+
+def test_unmigrated_database_is_missing_not_unreachable(tmp_path):
+    """A fresh database must be reported as unmigrated, not as a connection error."""
+    env, _ = environment(tmp_path, with_database=False)
+    result = run_preflight(env)
+    assert result.returncode == 3
+    checks = {check["name"]: check for check in json.loads(result.stdout)["checks"]}
+    assert checks["database"]["status"] == "pass"
+    assert checks["schema"]["status"] == "fail"
+    assert checks["schema"]["detail"] == "missing"

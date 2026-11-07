@@ -64,10 +64,15 @@ def schema_state(engine: Engine) -> dict[str, str]:
 
     try:
         with engine.connect() as connection:
+            names = set(inspect(connection).get_table_names())
+            if "alembic_version" not in names:
+                # A fresh database is unmigrated, not unreachable: querying the
+                # missing table would raise and be misreported as a connection
+                # failure, sending operators after the wrong problem.
+                return {"state": "missing", "revision": "", "objects": "incomplete"}
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one_or_none()
-            names = set(inspect(connection).get_table_names())
     except SQLAlchemyError:
         return {"state": "unavailable", "revision": "", "objects": "unknown"}
     if revision is None:

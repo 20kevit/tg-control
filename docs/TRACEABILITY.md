@@ -30,7 +30,7 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 | Migrations / data model | DATA_MODEL.md | `src/tg_control/db.py`, `alembic/versions` | `tests/test_migrations.py`, `tests/test_postgres_api.py` | 10 | Locally tested |
 | Packaging / deployment config | DEPLOYMENT.md, RELEASE_PROCESS.md | `Dockerfile`, `.dockerignore`, `compose.yaml`, `.env.example`, `pyproject.toml`, `requirements.lock` | `tests/test_operational_config.py`, `tests/test_deployment.py` | 15 | Locally tested |
 | Deployment lifecycle (host process) | DEPLOYMENT.md | `scripts/runtime_smoke.py`, `src/tg_control/config.py`, `src/tg_control/healthcheck.py`, `docs/DEPLOYMENT.md` | `tests/test_runtime_lifecycle.py` | 1 | Locally tested |
-| Deployment preflight | DEPLOYMENT.md | `src/tg_control/preflight.py`, `src/tg_control/config.py`, `src/tg_control/db.py` | `tests/test_preflight.py` | 9 | Locally tested |
+| Deployment preflight | DEPLOYMENT.md | `src/tg_control/preflight.py`, `src/tg_control/config.py`, `src/tg_control/db.py` | `tests/test_preflight.py` | 10 | Locally tested |
 | Adapter conformance | PRD.md, SECURITY.md | `src/tg_control/adapters/base.py`, `src/tg_control/adapters/synthetic.py`, `src/tg_control/adapters/tdlib_boundary.py` | `tests/test_adapter_conformance.py`, `tests/test_adapter.py` | 15 | Locally tested |
 | Scheduled retention | OPERATIONS.md, API.md | `src/tg_control/retention.py`, `src/tg_control/api.py` | `tests/test_retention_scheduling.py`, `tests/test_retention_pruning.py` | 9 | Locally tested |
 | Dependency audit and coverage | TESTING.md, RELEASE_PROCESS.md | `scripts/ci.sh`, `requirements.lock`, `pyproject.toml` | `tests/test_deployment.py` | 11 | Locally tested |
@@ -409,6 +409,7 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 - `tests/test_preflight.py::test_configuration_failure_takes_precedence_over_storage`
 - `tests/test_preflight.py::test_unexpected_internal_failure_reports_only_the_exception_type`
 - `tests/test_preflight.py::test_ephemeral_media_staging_uses_a_lower_headroom_threshold`
+- `tests/test_preflight.py::test_unmigrated_database_is_missing_not_unreachable`
 
 ### `tests/test_property_boundaries.py`
 
