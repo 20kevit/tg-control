@@ -7,6 +7,10 @@
 #
 # Usage: scripts/container_smoke.sh
 set -euo pipefail
+# A command that fails under `set -e` skips every explicit message, so report the
+# line and command as an annotation; a hosted run is then diagnosable at once.
+trap 'code=$?; printf "::error title=container-smoke::line %s failed (exit %s): %s\n" \
+  "$LINENO" "$code" "$BASH_COMMAND"' ERR
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
@@ -65,6 +69,9 @@ if [ "$(stat -c %u state/postgres)" != "$UID_TARGET" ] ||
       fail "state and secrets must be owned by $UID_TARGET:$GID_TARGET (chown them first)"
   fi
 fi
+
+log "start database"
+docker compose up -d --wait --wait-timeout 180 db
 
 log "read-only preflight must refuse to pass before migrations are applied"
 if docker compose run --rm --no-deps --entrypoint python gateway \

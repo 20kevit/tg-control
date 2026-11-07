@@ -232,6 +232,13 @@ def test_hosted_ci_workflow_is_pinned_least_privilege_and_runs_the_local_gate():
     assert "sudo chown -R 10001:10001 secrets" in deployment_doc
     assert "secret file unreadable" in deployment_doc
 
+    # A failure without an explicit message must still produce an annotation.
+    assert "trap 'code=$?; printf \"::error title=container-smoke::line %s failed" in smoke
+    # The database is up (but unmigrated) when the schema gate is asserted.
+    assert smoke.index("docker compose up -d --wait --wait-timeout 180 db") < smoke.index(
+        "refuse to pass before migrations"
+    )
+
     # The smoke script exercises the schema gate in both directions: preflight
     # must refuse an unmigrated database and pass after the migration service.
     assert "preflight passed on an unmigrated database" in smoke
