@@ -10,3 +10,14 @@ The project is under active implementation. See [status](docs/STATUS.md) for imp
 ## Authoritative contracts
 
 Start with [the product and engineering contract index](docs/CONTRACT_INDEX.md). Detailed contracts cover [events, durable jobs and workflows](docs/EVENTS_JOBS_WORKFLOWS.md) and [commands, media, AI tasks and plugins](docs/COMMANDS_MEDIA_AI_PLUGINS.md). Arena must follow these contracts while respecting the unresolved [compliance gate](docs/COMPLIANCE.md).
+
+## Operations quickstart (synthetic only)
+
+```sh
+python -m alembic upgrade head
+uvicorn tg_control.api:app_factory --factory --host 127.0.0.1 --port 8000
+.venv/bin/tg-control --token-file <owner-token-file> diagnose   # read-only diagnostics
+.venv/bin/tg-control-backup verify --input <archive> --backup-key-file <key>
+```
+
+Every error response uses the envelope documented in [API](docs/API.md); list endpoints use scope-bound cursors; health, metrics, logs, retention pruning, backup verification and graceful-shutdown behavior are documented in [operations](docs/OPERATIONS.md). All data is synthetic until the [compliance gate](docs/COMPLIANCE.md) is resolved.

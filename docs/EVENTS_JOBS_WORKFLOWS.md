@@ -164,3 +164,9 @@ No implicit trigger on arbitrary message arrival, text semantics, or inferred in
 - Job tests: every state transition, restart recovery, timezone/DST, misfire, pause/resume/cancel, stale lease, revoked credentials, policy changes, rate limits, deadline, duplicate prevention, unknown mutation, and graceful shutdown.
 - Workflow tests: invalid schema, disabled trigger, event spoofing, content-as-instruction, loop prevention, step timeout, partial failure, retry safety, per-step authorization, revocation, dry-run, restart recovery, and immutable run version.
 - Synthetic fixtures only until the compliance gate is resolved. Public event delivery and external webhooks require separate transport/security review.
+
+## Interruption, shutdown and history retention
+
+A job handler cancelled by shutdown or a supervisor is finalized deliberately: a mutating handler becomes `outcome_unknown` with error `interrupted` (it may already have applied an effect and is never retried), a read-only handler becomes `cancelled`. A claim whose worker disappears without cancellation stays `running` until its lease expires; startup recovery then applies the same rule (unknown for mutations, retry only when the failure proved no effect). Workflow runs still `running` at shutdown or at the next startup are resolved to `outcome_unknown`; a run is never resumed automatically.
+
+History is bounded by explicit owner pruning. `POST /v1/admin/maintenance/prune-jobs` deletes terminal jobs and their attempt rows; `POST .../prune-workflows` deletes finished workflow runs. Both accept `dry_run`, report `eligible`/`deleted`, are audited and idempotent, and never touch `queued`, `scheduled`, `retry_wait`, `running` or `paused` work. Pruning removes records, not effects: reconcile an unknown outcome from audit before deleting the evidence.

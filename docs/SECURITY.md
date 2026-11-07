@@ -28,3 +28,20 @@ Never trust client-supplied account membership, chat type, identity or permissio
 ## Operational boundaries
 
 Only synthetic/test data is allowed until the compliance gate and owner approval are resolved. Remote access requires HTTPS, restricted ingress, Origin/Host validation, and authentication on every request; static bearer credentials do not provide OAuth or eliminate replay. The static panel login/bootstrap is presently unauthenticated, so it must stay local-only unless a future approved deployment authenticates that ingress too. Do not expose a development instance to the public internet. See `SECURITY_REVIEW.md` for the internal review, residual risks and release blockers, and `STATUS.md` for verification evidence.
+
+## Hardening wave: findings and remediation (2026-11-07)
+
+Negative and property-based tests were added for every row. Severity reflects the synthetic, single-operator deployment; none of these findings is a claim about production readiness.
+
+| Finding | Severity | Remediation | Evidence |
+|---|---|---|---|
+| Unlimited credential guessing against HTTP/MCP | High | In-process failure throttle keyed by a digest of the source address; `429 rate_limit` + `Retry-After` before credential comparison; success clears the counter; tracked sources bounded | `tests/test_throttle.py` |
+| Tokens could appear in metric labels, logs or audit | High | Closed label vocabulary; sensitive-key redaction; record-size cap; audit stores metadata only | `tests/test_observability.py` |
+| Cursor forgery/replay across clients or scopes | High | Cursors are encrypted, scope-bound, expiry-bound, canonical-base64 only, and re-authorized per page; tamper/foreign-scope → `422` | `tests/test_pagination.py` |
+| Error responses echoing caller input or internals | Medium | Single error envelope with stable codes; validation details discarded; SQL/paths/upstream text never emitted; `500` always `outcome_unknown` | `tests/test_contracts.py`, `tests/test_observability.py` |
+| Undocumented or divergent behavior between HTTP, MCP and CLI | Medium | Machine-checked contract registry; CI gate fails on undocumented, duplicate, owner-plane-over-MCP or stale-matrix operations | `scripts/check_interfaces.py`, `tests/test_contracts.py` |
+| Ambiguous mutation left with a live lease after shutdown | High | Cancelled mutating handler is finalized `outcome_unknown`/`interrupted`; workflow runs resolved at shutdown; nothing is auto-retried | `tests/test_jobs.py`, `tests/test_workflows.py` |
+| Unbounded growth of job/history rows | Medium | Explicit owner-only, dry-run-first, audited pruning that never deletes non-terminal work | `tests/test_retention_pruning.py` |
+| Backup archive could be corrupt or schema-incompatible unnoticed | High | Manifest v2 with app/schema/created metadata; read-only `verify` with authenticated decryption, layout checks and revision compatibility | `tests/test_backup.py` |
+
+Retained limitations: the throttle is process-local (a restart clears counters and a shared source address is throttled for everyone); bearer tokens remain replayable if stolen; there is no OAuth, MFA or distributed rate limiting; the instance guard is cooperative and not fencing; and adversarial tests use synthetic fixtures only.

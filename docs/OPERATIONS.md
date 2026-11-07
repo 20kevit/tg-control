@@ -55,3 +55,74 @@ Omit `--state-dir` only for an archive without synthetic state. Authentication i
 ## Migrations and troubleshooting
 
 Back up and test migrations on an isolated copy before upgrading. Revision `0004` adds an audit event/id index without changing existing audit rows; index creation can still take time and locks on a populated database. Use the exact checked-out code version and `TG_DATABASE_URL_FILE=/private/url python -m alembic upgrade head` from the repository. Downgrades may lose security metadata and are not a substitute for backup; do not run them without explicit approval. If readiness fails, check DB reachability and migration revision, state-directory ownership/mode and exclusive lock, secret file access, and disk capacity. If media maintenance fails, stale bytes may remain until the next successful sweep; resolve the error and verify retention. A mutation with a lost response or audit failure may have occurred: reconcile rather than blindly retrying.
+
+## Graceful shutdown and recovery
+
+The lifespan shutdown is ordered and conservative:
+
+1. The job registry stops accepting new claims (`jobs.close()`); the scheduler, event ingest, media maintenance and session monitor tasks are cancelled.
+2. A cancelled mutating job handler is finalized as `outcome_unknown` with error `interrupted`; it is never retried automatically. A cancelled read-only handler is recorded as `cancelled`. If cancellation happens before the handler starts, the existing lease-expiry recovery resolves the claim at the next start.
+3. Workflow runs still marked `running` are resolved to `outcome_unknown` at shutdown (the same recovery that runs at startup), so no run can be silently resumed.
+4. Adapters are closed, the cooperative instance lock is released, and the SQLAlchemy engine is disposed (connections returned/closed).
+
+In-flight HTTP requests are drained by the ASGI server before the lifespan shutdown runs; keep the server's graceful-shutdown timeout longer than the slowest documented operation. `SIGKILL`, a crash or a power loss bypass shutdown: jobs keep their leases until expiry and are then recovered as `outcome_unknown` (mutations) or retried only when the failure proved no effect (read-only), and workflow runs are recovered at the next start. Restarting the process is therefore safe with respect to duplicate execution, but an effect from an interrupted request must still be reconciled rather than repeated.
+
+## Operator diagnostics
+
+`GET /v1/admin/diagnostics` (owner) and `tg-control diagnose` print the same aggregate: unhealthy services, database reachability, failed jobs, stuck workflows, quarantined plugins, pending retries, interrupted/unknown operations, migration consistency, media-storage state and adapter failures. The report is read-only and aggregated: it contains no account IDs, tokens, DSNs, file paths or message content. Use `GET /v1/admin/traces`, `/v1/admin/metrics` and the JSON logs to correlate a specific `request_id`.
+
+Triage order: readiness (`/health/ready`) → diagnostics `findings` → failed/stuck work by state → audit rows for the affected `request_id` → traces for the same id. Never paste tokens, session files or message content into a ticket.
+
+## Metrics and log fields
+
+Prometheus metrics exposed at `GET /v1/admin/metrics`:
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `tg_control_http_requests_total` | `method`, `route`, `status_class`, `outcome` | Requests by transport method, route template and status class |
+| `tg_control_http_request_duration_seconds` | `method`, `route` | Latency histogram (exposed as `_count`/`_sum`) |
+| `tg_control_http_errors_total` | `route`, `status_class`, `outcome` | Server-side (`5xx`) responses |
+| `tg_control_component_outcomes_total` | `component`, `kind`, `outcome` | Job, workflow, plugin and AI outcomes (including `outcome_unknown`, `cancelled`, `retried`) |
+| `tg_control_metric_series_dropped` | — | Series dropped after the cardinality cap |
+
+The label vocabulary is closed (`method`, `route`, `status_class`, `outcome`, `kind`, `state`, `component`); unknown labels are rejected and unknown outcomes collapse to `error`, so no account, client, chat or token value can become a label. `route` is always the route template (for example `/v1/admin/jobs/{job_id}`), never a raw path.
+
+Logs are newline-delimited JSON written to stderr with a configurable level (`TG_LOG_LEVEL`). Fields are a fixed allowlist; values are truncated and sensitive keys (`text`, `message`, `content`, `body`, `caption`, `password`, `token`, `secret`, `authorization`, `phone`, …) are redacted. Record size is bounded. Never enable request-body or authorization logging.
+
+## Backup verification
+
+Every archive records manifest **version 2**: `includes_state`, `app_version`, `schema_revision` (the source Alembic revision) and `created_at`. Verify an archive without a database or a restore target:
+
+```sh
+.venv/bin/tg-control-backup verify --input /private/backups/synthetic-001.tgcbak \
+  --backup-key-file /private/backup-key --scratch-dir /dev/shm
+```
+
+`--json` prints a machine-readable report (`format`, `manifest_version`, `app_version`, `schema_revision`, `created_at`, `includes_state`, `state_accounts`, `dump_bytes`, `archive_bytes`, `integrity`, `restore_state_dir_required`, `compatible`, `warnings`). Verification authenticates the ciphertext, validates the archive layout and canonical state paths, requires a non-empty dump, and never writes to the restore targets (it uses a disposable scratch directory). Add `--expected-schema-revision <revision>` to compare the recorded revision with the running application; a mismatch sets `compatible: false` and the command exits `3` (a legacy v1 archive without metadata produces a warning and skips the comparison). A v1 archive restores but records no revision.
+
+## Retention pruning
+
+| Data | Default | Trigger | Notes |
+|---|---|---|---|
+| Audit events | 90 days | `POST /v1/admin/maintenance/prune-audit` | Owner-only, bounded, audited |
+| Event payloads | 30 days | `POST .../prune-events` | Subscription cursors are preserved |
+| Synthetic media bytes | 30 days (`null` = never) | Access, startup, hourly sweep | Metadata remains |
+| Terminal jobs + attempt history | operator choice (1–36500 days) | `POST .../prune-jobs` | Dry-run first; non-terminal work is never deleted |
+| Finished workflow runs | operator choice (1–36500 days) | `POST .../prune-workflows` | `running` runs are never deleted |
+| Cache entries | TTL (`0` disables) | Every write/invalidate | Process memory only |
+| Logs | host policy | Log rotation / journald | Outside the database; not pruned by the gateway |
+
+Every prune endpoint accepts `dry_run: true`, reports `eligible`/`deleted`, is idempotent (a repeat deletes nothing) and records an audit event. Pruning is deletion from the active store only: filesystem snapshots, backups and WAL can retain older bytes. There is no automatic scheduler-triggered pruning; an operator or external job must call the endpoints. Scheduling that externally is a deployment decision and remains pending.
+
+## Troubleshooting
+
+| Symptom | Check | Action |
+|---|---|---|
+| `503 storage_unavailable` | Database reachability, disk, pool exhaustion | Retry read-only work; reconcile mutations (`outcome_unknown: true`) |
+| `503 instance_guard_lost` | Another writer or a stale lock | Stop the process, confirm no other writer, reconcile in-flight work, restart |
+| `503 migration_not_current` / readiness `migration` | `alembic_version` vs code | Run the pinned `alembic upgrade head`; never auto-upgrade |
+| Readiness `scheduler` down | Diagnostics worker state | Restart; jobs are lease-recovered, not duplicated |
+| `429 rate_limit` | `Retry-After`, audit `authentication` denials | Wait; rotate a leaked credential instead of retrying |
+| `422 invalid_cursor` | Client mixing cursors across scopes/endpoints | Restart pagination from the first page |
+| Stuck workflow run | `running` after a crash | Resolved to `outcome_unknown` at next start; reconcile the effect |
+| Archive fails to verify | Wrong key file, truncated copy, revision mismatch | Restore from a verified copy; never "repair" ciphertext |

@@ -53,3 +53,41 @@ python scripts/gen_traceability.py
 ```
 
 The matrix covers 17 requirement areas and the full executed-test inventory. It proves mapping and execution, not product correctness, and deliberately contains no rows for unimplemented areas (live TDLib adapter, real AI providers, remote plugin distribution, deployment).
+
+## Interface contracts and CI gate
+
+Run the interface gate exactly as CI would:
+
+```sh
+.venv/bin/python scripts/gen_contracts.py      # regenerate docs/contracts/interfaces.json
+.venv/bin/python scripts/check_interfaces.py   # stale matrix, missing MCP/CLI bindings, owner-over-MCP
+.venv/bin/pytest -q tests/test_contracts.py tests/test_mcp.py
+```
+
+`tests/test_contracts.py` binds the registry to the live application: every operation must appear in `app.routes` with the recorded method, every client operation must also be reachable through MCP and CLI, owner-plane operations must not be MCP tools, MCP argument models and the CLI catalog must exist, paginated operations must expose a cursor parameter in `app.openapi()`, error codes must normalize to the registry vocabulary, Core references must resolve, and `docs/contracts/interfaces.json` must be current. `tests/test_mcp.py` compares the live tool catalog against `mcp_server.TOOLS` instead of a hand-written list.
+
+## Pagination
+
+`tests/test_pagination.py` covers cursor determinism and scope binding, tamper and forged-key rejection, non-canonical base64, malformed and over-long tokens, expiry (`expired_cursor`), identifier validation, `normalise_limit` (defaults, booleans, zero and over-maximum), full job walks (first, intermediate, final, empty), cross-client and admin cursor reuse (`422 invalid_cursor`), concurrent inserts and deletes between pages, audit pagination with the legacy `before_id`, workflow-run pagination with a cross-workflow cursor, and metadata typing.
+
+## Observability and health
+
+`tests/test_observability.py` covers JSON log redaction and bounding, hostile values that must never raise, the metric label allowlist, outcome normalization, the series cap, span hierarchy/parent ids/redaction, `/health/live|ready|dependencies` (owner-only, no secrets), owner-only metrics/traces/diagnostics, diagnostics aggregates without account ids, request-id echo/regeneration, error envelopes that never echo input, and configurable log levels.
+
+## Retention, throttling and shutdown
+
+- `tests/test_retention_pruning.py` proves dry-run-first pruning of terminal jobs and finished workflow runs, preservation of non-terminal work, attempt-history cascade, audit events, idempotent repeats, owner-only access and bounded request validation.
+- `tests/test_throttle.py` covers the failure window, lockout and recovery, bounded source tracking, digest-only keys, `429` + `Retry-After` over HTTP, fail-closed behavior during lockout, success reset and audit without the credential.
+- `tests/test_jobs.py` includes a cancelled mutating execution that must be finalized `outcome_unknown`/`interrupted` and must not be retried by lease recovery.
+- `tests/test_backup.py` covers manifest v2 round-trip, legacy v1 warnings, wrong key, tampered ciphertext, truncation, revision mismatch (`compatible: false`, exit `3`), invalid layout/empty dump, a read-only verify that writes nothing, and the `verify` CLI.
+
+## Exact commands and current result
+
+```sh
+.venv/bin/pytest -q                                  # 391 passed, 1 optional native probe skipped
+.venv/bin/ruff check src tests alembic scripts        # clean
+.venv/bin/python scripts/check_interfaces.py          # 72 operations, 20 MCP tools, 26 CLI commands
+.venv/bin/python scripts/gen_traceability.py          # matrix regenerated, 4 checks pass
+```
+
+The optional native TDLib probe is skipped unless `TG_TDLIB_LIBRARY` points at a locally built library. Docker/Compose runtime and remote OAuth interoperability remain unverified and are not claimed.
