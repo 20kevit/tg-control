@@ -183,6 +183,10 @@ window, and Docker sends SIGKILL only after that.
   `downgrade -1` removes exactly the newest revision and reapplies cleanly
   (`test_migration_rollback_and_reapply_on_disposable_sqlite`). Downgrades that
   would drop columns are **not** exercised and must not be claimed safe.
+- Concurrent startup while a migration is running is handled by the same gate
+  (the second process sees `behind`/`incomplete` and refuses), but it has not
+  been load-tested and the `migrate` service must not run while a gateway serves
+  traffic.
 - A partially applied schema (revision matches, table missing) is detected and
   refused; `alembic upgrade head` is a no-op in that state, so recovery is a
   restore from a verified backup or a deliberate rebuild of a disposable
@@ -224,6 +228,7 @@ executed, no leaks). `scripts/container_smoke.sh` performs the same scan over
 | Image build, `docker compose config`, container start/recreate, in-container non-root check, log scan | **Blocked** — no container runtime in the development sandbox (`CapEff: 0`, no socket) |
 | Hosted CI execution of the workflow | **Not executed** — `.github/workflows/ci.yaml` exists and is statically checked, but no run has happened on GitHub |
 | Image/OS vulnerability scan, digest pinning | **Blocked / requires owner action** (network + registry approval) |
+| Graceful shutdown under sustained load, concurrent startup/migration, long-running soak | **Not tested** — the shutdown path is verified with idle/short requests only |
 | Any deployment to a real host | **Not performed and not authorized** |
 
 Do not describe this stack as production-ready, hardened against a hostile
