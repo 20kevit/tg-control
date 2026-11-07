@@ -38,6 +38,10 @@ if [ -e secrets/owner_token ]; then
   fail "secrets/ already contains state; refusing to overwrite an operator's files"
 fi
 "${PYTHON:-python3}" scripts/init_synthetic_secrets.py --directory ./secrets
+# Read the owner token while the invoking user can still read it: the secrets are
+# made 0400 and owned by the container UID below.
+TOKEN="$(cat secrets/owner_token)"
+[ -n "$TOKEN" ] || fail "owner token file is empty"
 mkdir -p state/postgres state/synthetic
 chmod 700 state state/postgres state/synthetic
 # The image runs as an unprivileged UID with no capabilities; the bind mounts
@@ -61,9 +65,6 @@ if [ "$(stat -c %u state/postgres)" != "$UID_TARGET" ] ||
       fail "state and secrets must be owned by $UID_TARGET:$GID_TARGET (chown them first)"
   fi
 fi
-
-TOKEN="$(cat secrets/owner_token)"
-[ -n "$TOKEN" ] || fail "owner token file is empty"
 
 log "read-only preflight must refuse to pass before migrations are applied"
 if docker compose run --rm --no-deps --entrypoint python gateway \

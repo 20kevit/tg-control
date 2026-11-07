@@ -224,6 +224,10 @@ def test_hosted_ci_workflow_is_pinned_least_privilege_and_runs_the_local_gate():
     assert smoke.index("chmod 400 secrets/*") < smoke.index(
         'chown -R "$UID_TARGET:$GID_TARGET" state secrets'
     )
+    # The token is read before the files become unreadable to the host user.
+    assert smoke.index('TOKEN="$(cat secrets/owner_token)"') < smoke.index(
+        "chmod 400 secrets/*"
+    )
     deployment_doc = (ROOT / "docs" / "DEPLOYMENT.md").read_text()
     assert "sudo chown -R 10001:10001 secrets" in deployment_doc
     assert "secret file unreadable" in deployment_doc
