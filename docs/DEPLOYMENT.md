@@ -252,9 +252,9 @@ Executed each time `tests/test_runtime_lifecycle.py` (host process) or
 | Database unreachable | exit 3, message names connectivity | host process, executed |
 | Schema behind/ahead/unknown/incomplete | exit 3, `startup.schema_rejected`, no migration attempted | host process, executed |
 | Synthetic state dir group/world-accessible | exit 1, refuses to serve | host process, executed |
-| Database stopped while serving | all health routes `503` (fail-closed audit), recovery after restart | host process, executed (`database_outage_fail_closed`); container variant in the smoke script (not executed here) |
+| Database stopped while serving | all health routes `503` (fail-closed audit); the guard stays latched after the database returns and only a restart restores readiness | host process, executed (`database_outage_fail_closed`); container variant executed on hosted CI (run `42399624830`) |
 | SIGTERM while serving | graceful shutdown, `forced_kill: false` | host process, executed |
-| Restart / recreate | data persisted in `./state`, readiness returns | host process restart executed; container recreation blocked |
+| Restart / recreate | data persisted in `./state`, readiness returns | host process restart executed; container recreation executed on hosted CI (run `42399624830`) |
 
 Secret-leak checks: the host-process harness scans the whole captured log for
 the owner token, database URL password and encryption key (`log_secret_scan`,
@@ -266,22 +266,22 @@ executed, no leaks). `scripts/container_smoke.sh` performs the same scan over
 | Check | Status |
 |---|---|
 | Dockerfile/Compose static assertions | **Executed locally** (`tests/test_deployment.py`, 11 tests) |
-| Deployment preflight (config, permissions, disk, database, schema) | **Executed locally** (`tests/test_preflight.py`, 7 tests) |
+| Deployment preflight (config, permissions, disk, database, schema) | **Executed locally** (`tests/test_preflight.py`, 10 tests) and inside the container on hosted CI |
 | Compose YAML parse + security posture | **Executed locally** (`tests/test_operational_config.py`) |
 | Host-process lifecycle, health, graceful stop, restart persistence, database-outage fail-closed, failure modes | **Executed locally** (`tests/test_runtime_lifecycle.py` → `scripts/runtime_smoke.py`, 11 scenarios) |
-| Image build, `docker compose config`, container start/recreate, in-container non-root check, log scan | **Blocked** — no container runtime in the development sandbox (`CapEff: 0`, no socket) |
-| Hosted CI execution of the workflow | **Executed** — run `42399624830`, both jobs green |
+| Image build, `docker compose config`, container start/recreate, in-container non-root check, log scan | **Executed on hosted CI**; **blocked locally** — no container runtime in the development sandbox (`CapEff: 0`, no socket) |
+| Hosted CI execution of the workflow | **Executed** — run `42399624830` and re-confirmed green on later commits, both jobs |
 | Container image build, compose validation and disposable smoke test | **Executed on hosted CI** (run `42399624830`) with `scripts/container_smoke.sh`; **blocked locally** (no container runtime) |
 | Image user and environment inspection (`10001:10001`, no secret-like env) | **Executed on hosted CI** (same run) |
-| Base-image digest pinning, image vulnerability/SBOM scan, image publication | **Not executed** — no registry access decision or scanning tool in the accepted scope |
 | Dependency vulnerability audit of the lockfile | **Executed locally and on hosted CI** (`pip-audit -r requirements.lock --strict` → no known vulnerabilities) |
-| Image/OS vulnerability scan, digest pinning | **Blocked / requires owner action** (network + registry approval) |
+| Base-image digest pinning, image/OS vulnerability and SBOM scan, image publication | **Not executed / requires owner approval** — registry access and a scanning tool are outside the accepted scope |
 | Graceful shutdown under sustained load, concurrent startup/migration, long-running soak | **Not tested** — the shutdown path is verified with idle/short requests only |
 | Any deployment to a real host | **Not performed and not authorized** |
 
-Do not describe this stack as production-ready, hardened against a hostile
-network, or verified on a container runtime until the blocked rows above have
-real evidence.
+The container path now has real execution evidence from hosted CI, but do not
+describe this stack as production-ready or hardened against a hostile network:
+digest pinning, image/OS scanning, load-level behaviour, multi-instance operation
+and any actual deployment are still unexecuted row(s) above.
 
 ## 9. Resource and DoS boundaries
 
