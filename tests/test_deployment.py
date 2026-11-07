@@ -232,6 +232,13 @@ def test_hosted_ci_workflow_is_pinned_least_privilege_and_runs_the_local_gate():
     assert any("requirements.lock" in line for line in lines[:pytest_line]), lines
     assert any(line.startswith("python3 -m pip install --upgrade pip") for line in lines)
 
+    # Anything piped into `tee` must set `pipefail`, otherwise tee's exit status
+    # masks a failing gate and the job reports success for a broken build.
+    for step in workflow["jobs"]["quality"]["steps"] + workflow["jobs"]["container"]["steps"]:
+        run = step.get("run", "") if isinstance(step, dict) else ""
+        if "| tee " in run:
+            assert "pipefail" in run, run
+
     # The gate measures coverage and the workflow audits the lockfile.
     assert 'TG_COVERAGE: "1"' in raw
     assert "pip-audit -r requirements.lock --strict" in raw
