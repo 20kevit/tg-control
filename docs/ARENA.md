@@ -2,7 +2,7 @@
 
 ## Mission
 
-Implement tg-control as a reliable personal Telegram AI Gateway. Arena is the autonomous engineering executor. The project owner and reviewing architect retain authority over product invariants, security boundaries, compliance decisions, and approval-gated operations.
+Implement tg-control as a complete, reliable personal Telegram AI Gateway. Arena is the autonomous engineering executor. The project owner and reviewing architect retain authority over product invariants, security boundaries, compliance decisions, and approval-gated operations. Before each workstream, read docs/CONTRACT_INDEX.md and the linked domain contract; these define the complete approved scope and the precedence rules.
 
 Arena must inspect the repository and existing project context before making changes. Convert the requirements below into maintained documentation, a staged backlog, implementation, tests, and reviewable commits. Continue automatically through every stage that does not require owner approval. Do not stop after a plan, scaffold, or progress summary.
 
@@ -104,7 +104,7 @@ Stop before:
 - Any destructive operation or irreversible migration.
 - Creating, transferring, or using real credentials/secrets outside approved local test fixtures.
 - Changing product invariants, permission semantics, trust boundaries, or security model.
-- Making the repository public or changing repository sharing/access.
+- Changing repository visibility or sharing/access. The repository is already public with owner approval; do not change its visibility or sharing settings.
 - Treating the compliance gate as resolved.
 
 Routine, reversible engineering decisions are delegated to Arena. Choose sensible defaults, document them in ADRs, and continue. Do not interrupt the owner for ordinary library choices, module organization, test implementation details, or refactors that preserve invariants.
@@ -179,7 +179,7 @@ This addendum translates the competitor review into engineering direction. It is
 
 ### Current repository reality
 
-The reviewed repository snapshot contains documentation only (README.md and docs/ARENA.md). Do not describe planned architecture as implemented. First establish a runnable, tested foundation and keep a traceable distinction between planned, scaffolded, implemented, and verified capabilities.
+The repository is no longer documentation-only. As of 2026-11-07 it contains a runnable synthetic-only Python gateway, PostgreSQL models/migrations, authenticated Core/API, MCP stdio and Streamable HTTP, CLI, Web Admin, synthetic read/write/admin paths, audit, retention, encrypted synthetic state, backup/restore utilities, monitoring, and a cooperative single-instance guard. See STATUS.md, ACCEPTANCE.md, and ROADMAP.md for evidence and open gaps. Do not repeat historical status as current fact; keep planned, scaffolded, implemented, and verified distinct.
 
 ### Engineering priorities
 
@@ -225,16 +225,17 @@ The reviewed repository snapshot contains documentation only (README.md and docs
 
 Maintain these as concise, version-controlled documents and keep them aligned with implementation:
 
-- docs/PRD.md and a feature/status matrix (planned / scaffolded / implemented / verified).
+- docs/CONTRACT_INDEX.md as the authoritative contract map and autonomy policy.
+- docs/PRD.md and a feature/status matrix (confirmed / required foundation / candidate / blocked / implemented / verified).
 - docs/ARCHITECTURE.md and ADRs for consequential technical choices.
 - docs/API.md or an OpenAPI specification plus MCP tool schemas.
 - docs/SECURITY.md with threat model, trust boundaries, and security controls.
 - docs/POLICY.md with permission/scope truth table and default-deny semantics.
-- docs/EVENTS.md, docs/JOBS.md, and docs/MEDIA.md for their durable contracts.
+- docs/EVENTS_JOBS_WORKFLOWS.md and docs/COMMANDS_MEDIA_AI_PLUGINS.md for event, job, workflow, command, media, AI-task, and plugin contracts.
 - docs/OPERATIONS.md for configuration, health, backup/restore, migrations, and recovery.
 - A test strategy and requirement-to-test traceability matrix.
 
-Do not create empty documents just to satisfy this list. Create each artifact when its content is sufficiently defined and link it from the project documentation.
+Do not create empty documents just to satisfy this list. The contract documents listed here now exist and are authoritative for their domains. Keep them linked from README.md and synchronized with implementation.
 
 ### Stage exit evidence
 
