@@ -34,6 +34,7 @@ from . import audit
 from .auth import Principal
 from .core import BatchRejected, Gateway
 from .db import Credential
+from .observability import record_component_outcome
 from .schemas import Action, Batch, History
 
 PLUGIN_ID_RE = re.compile(r"^[a-z][a-z0-9_.-]{2,63}$")
@@ -414,6 +415,7 @@ class PluginRegistry:
             self._record_failure(plugin_id, "plugin_error")
             raise PluginError("plugin_error", 502) from None
         self._failures[plugin_id] = 0
+        record_component_outcome("plugins", "success", kind=operation)
         self._audit(plugin_id, f"plugin_{operation}", "success")
         if operation == "history":
             return result["items"][0].get("data", {})
@@ -430,6 +432,7 @@ class PluginRegistry:
         window.append(now)
 
     def _record_failure(self, plugin_id: str, error: str) -> None:
+        record_component_outcome("plugins", "failure", kind="action")
         self._failures[plugin_id] += 1
         entry = self._plugins.get(plugin_id)
         if entry is not None and self._failures[plugin_id] >= QUARANTINE_AFTER_FAILURES:

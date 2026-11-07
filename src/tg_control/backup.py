@@ -11,6 +11,7 @@ import base64
 import io
 import json
 import os
+import re
 import secrets
 import shutil
 import stat
@@ -19,6 +20,7 @@ import sys
 import tarfile
 import tempfile
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -45,8 +47,20 @@ ALLOWED_CONNECTION_FIELDS = {
 }
 
 
+APP_VERSION = "0.1.0"
+
+
 class BackupError(Exception):
     pass
+
+
+def _conninfo(connection: dict[str, str]) -> str:
+    """Build a libpq DSN in memory. It is never logged, printed or serialised."""
+    parts = []
+    for key, value in connection.items():
+        escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+        parts.append(f"{key}='{escaped}'")
+    return " ".join(parts)
 
 
 def _private_file(path: Path) -> bytes:
@@ -194,6 +208,138 @@ class _EncryptWriter:
         os.fsync(self.stream.fileno())
 
 
+def _source_revision(connection: dict[str, str]) -> str | None:
+    """Read the Alembic revision of the dumped database without printing secrets."""
+    try:
+        with psycopg.connect(_conninfo(connection), connect_timeout=5) as db:
+            row = db.execute("SELECT version_num FROM alembic_version").fetchone()
+    except psycopg.Error:
+        return None
+    if not row or not isinstance(row[0], str) or len(row[0]) > 32:
+        return None
+    return row[0]
+
+
+SUPPORTED_MANIFEST_VERSIONS = (1, 2)
+
+
+def _parse_manifest(raw: bytes) -> dict:
+    try:
+        manifest = json.loads(raw)
+    except (ValueError, UnicodeError):
+        raise BackupError("invalid backup manifest") from None
+    if not isinstance(manifest, dict) or type(manifest.get("version")) is not int:
+        raise BackupError("unsupported backup manifest")
+    version = manifest["version"]
+    if version not in SUPPORTED_MANIFEST_VERSIONS:
+        raise BackupError("unsupported backup manifest")
+    if not isinstance(manifest.get("includes_state"), bool):
+        raise BackupError("invalid backup manifest")
+    allowed = {"version", "includes_state"}
+    if version == 2:
+        allowed |= {"app_version", "schema_revision", "created_at"}
+        if not isinstance(manifest.get("app_version"), str) or len(manifest["app_version"]) > 32:
+            raise BackupError("invalid backup manifest")
+        revision = manifest.get("schema_revision")
+        if revision is not None and (
+            not isinstance(revision, str) or not re.fullmatch(r"[0-9A-Za-z_]{1,32}", revision)
+        ):
+            raise BackupError("invalid backup manifest")
+        if not isinstance(manifest.get("created_at"), str) or len(manifest["created_at"]) > 40:
+            raise BackupError("invalid backup manifest")
+    if set(manifest) != allowed:
+        raise BackupError("unsupported backup manifest")
+    return manifest
+
+
+def verify_archive(
+    archive: Path,
+    key_file: Path,
+    *,
+    state_dir: Path | None = None,
+    scratch_dir: Path | None = None,
+    expected_schema_revision: str | None = None,
+) -> dict:
+    """Read-only integrity and compatibility check of an encrypted backup.
+
+    Authenticates the ciphertext, validates the archive layout and manifest, checks
+    that the dump is non-empty and that state members are canonical, and compares
+    the recorded schema revision with the running application when supplied. It
+    never writes to the restore targets and never prints key material.
+    """
+    key = _backup_key(key_file)
+    with tempfile.TemporaryDirectory(prefix="tg-control-verify-", dir=scratch_dir) as temp:
+        scratch = Path(temp)
+        plaintext = scratch / "archive.tar"
+        _decrypt(archive, plaintext, key)
+        try:
+            with tarfile.open(plaintext, mode="r:") as tar:
+                members = tar.getmembers()
+                names = [member.name for member in members]
+                if len(set(names)) != len(names) or any(not member.isfile() for member in members):
+                    raise BackupError("invalid backup contents")
+                if {"manifest.json", "database.dump"} - set(names):
+                    raise BackupError("invalid backup contents")
+                manifest_member = tar.getmember("manifest.json")
+                if manifest_member.size > 4096:
+                    raise BackupError("invalid backup manifest")
+                manifest_file = tar.extractfile(manifest_member)
+                if manifest_file is None:
+                    raise BackupError("invalid backup manifest")
+                manifest = _parse_manifest(manifest_file.read())
+                dump = tar.getmember("database.dump")
+                if dump.size <= 0:
+                    raise BackupError("empty database dump")
+                core_members = {"manifest.json", "database.dump"}
+                state_members = [name for name in names if name not in core_members]
+                for name in state_members:
+                    parts = name.split("/")
+                    if len(parts) != 3 or parts[0] != "state" or parts[2] != "state.enc":
+                        raise BackupError("invalid backup contents")
+                    try:
+                        if str(UUID(parts[1])) != parts[1]:
+                            raise ValueError
+                    except ValueError:
+                        raise BackupError("invalid backup contents") from None
+                if bool(state_members) != manifest["includes_state"]:
+                    raise BackupError("invalid backup contents")
+        except tarfile.TarError:
+            raise BackupError("invalid backup contents") from None
+        report = {
+            "format": "tg-control-encrypted-backup",
+            "manifest_version": manifest["version"],
+            "app_version": manifest.get("app_version"),
+            "schema_revision": manifest.get("schema_revision"),
+            "created_at": manifest.get("created_at"),
+            "includes_state": manifest["includes_state"],
+            "state_accounts": len([name for name in names if name.startswith("state/")]),
+            "dump_bytes": dump.size,
+            "archive_bytes": archive.stat().st_size,
+            "integrity": "verified",
+            "restore_state_dir_required": manifest["includes_state"],
+            "compatible": True,
+            "warnings": [],
+        }
+        if manifest["version"] == 1:
+            report["warnings"].append(
+                "manifest v1: schema revision and app version were not recorded"
+            )
+        if expected_schema_revision is not None:
+            recorded = manifest.get("schema_revision")
+            if recorded is None:
+                report["warnings"].append("schema revision unknown; migration check skipped")
+            elif recorded != expected_schema_revision:
+                report["compatible"] = False
+                report["warnings"].append(
+                    "backup schema revision differs from the running application"
+                )
+        if state_dir is None and manifest["includes_state"]:
+            report["warnings"].append(
+                "archive includes synthetic state; a new --state-dir is required"
+            )
+        return report
+
+
 def _tar_file(archive: tarfile.TarFile, name: str, stream, size: int) -> None:
     info = tarfile.TarInfo(name)
     info.size = size
@@ -238,7 +384,15 @@ def create_backup(
         # Unlinking by pathname could delete a different file substituted in a race.
         with os.fdopen(fd, "wb") as encrypted:
             writer = _EncryptWriter(encrypted, key)
-            manifest = json.dumps({"version": 1, "includes_state": state_dir is not None}).encode()
+            manifest = json.dumps(
+                {
+                    "version": 2,
+                    "includes_state": state_dir is not None,
+                    "app_version": APP_VERSION,
+                    "schema_revision": _source_revision(connection),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+            ).encode()
             with tarfile.open(fileobj=writer, mode="w|") as archive:
                 _tar_file(archive, "manifest.json", io.BytesIO(manifest), len(manifest))
                 with dump.open("rb") as file:
@@ -331,18 +485,7 @@ def restore_backup(
             manifest_file = tar.extractfile(manifest_member)
             if manifest_file is None:
                 raise BackupError("invalid backup manifest")
-            try:
-                manifest = json.load(manifest_file)
-            except (ValueError, UnicodeError):
-                raise BackupError("invalid backup manifest") from None
-            if (
-                not isinstance(manifest, dict)
-                or set(manifest) != {"version", "includes_state"}
-                or type(manifest["version"]) is not int
-                or manifest["version"] != 1
-                or not isinstance(manifest["includes_state"], bool)
-            ):
-                raise BackupError("unsupported backup manifest")
+            manifest = _parse_manifest(manifest_file.read())
             if manifest["includes_state"] != (state_dir is not None):
                 raise BackupError(
                     "restore must specify a new state directory exactly when included"
@@ -411,18 +554,28 @@ def main() -> None:
         description="Encrypted synthetic gateway backup; stop the gateway first"
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ("create", "restore"):
+    for command in ("create", "restore", "verify"):
         item = sub.add_parser(command)
-        item.add_argument("--database-url-file", type=Path, required=True)
+        item.add_argument(
+            "--database-url-file", type=Path, required=command != "verify"
+        )
         item.add_argument("--backup-key-file", type=Path, required=True)
         item.add_argument("--state-dir", type=Path)
         item.add_argument("--scratch-dir", type=Path, help="private tmpfs recommended")
         item.add_argument("--pg-bin-dir", type=Path)
         if command == "create":
             item.add_argument("--output", type=Path, required=True)
-        else:
+        elif command == "restore":
             item.add_argument("--input", type=Path, required=True)
             item.add_argument("--confirm-empty-target", action="store_true")
+        else:
+            item.add_argument("--input", type=Path, required=True)
+            item.add_argument(
+                "--expected-schema-revision",
+                default=None,
+                help="fail when the recorded migration revision differs",
+            )
+            item.add_argument("--json", action="store_true", help="machine-readable report")
     args = parser.parse_args()
     try:
         if args.command == "create":
@@ -435,6 +588,27 @@ def main() -> None:
                 bin_dir=args.pg_bin_dir,
             )
             print("Encrypted backup created.")
+        elif args.command == "verify":
+            report = verify_archive(
+                args.input,
+                args.backup_key_file,
+                state_dir=args.state_dir,
+                scratch_dir=args.scratch_dir,
+                expected_schema_revision=args.expected_schema_revision,
+            )
+            if args.json:
+                print(json.dumps(report, indent=2))
+            else:
+                print(
+                    "Backup verified: "
+                    f"manifest v{report['manifest_version']}, "
+                    f"schema {report['schema_revision'] or 'unknown'}, "
+                    f"{report['state_accounts']} state account(s)."
+                )
+                for warning in report["warnings"]:
+                    print(f"Warning: {warning}")
+            if not report["compatible"]:
+                raise SystemExit(3)
         else:
             restore_backup(
                 args.database_url_file,

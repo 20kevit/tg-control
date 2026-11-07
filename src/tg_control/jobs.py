@@ -18,6 +18,7 @@ Design notes (see ADR-007):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -27,7 +28,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -290,6 +291,7 @@ def serialize_job(job: Job, runs: list[JobRun] | None = None) -> dict[str, Any]:
         "result": job.result,
         "correlation_id": job.correlation_id,
         "account_id": job.account_id,
+        "created_at": _as_aware_utc(job.created_at).isoformat() if job.created_at else None,
     }
     if runs is not None:
         payload["runs"] = [
@@ -450,6 +452,52 @@ class Jobs:
             raise JobError("job_not_found", 404)
         return job
 
+    def prune_terminal(
+        self,
+        *,
+        older_than_days: int,
+        dry_run: bool = False,
+        reference: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Delete terminal job records older than the retention window.
+
+        Only rows in a terminal state are eligible: a queued, scheduled, running
+        or retry-waiting job is operational state, not history. Non-idempotent
+        side effects are never retried because a record was pruned.
+        """
+        if type(older_than_days) is not int or not 1 <= older_than_days <= 36500:
+            raise JobError("invalid_request", 422)
+        if type(dry_run) is not bool:
+            raise JobError("invalid_request", 422)
+        cutoff = (reference or self.clock()) - timedelta(days=older_than_days)
+        with self.sessions() as session:
+            predicate = and_(
+                Job.state.in_(sorted(TERMINAL_STATES)),
+                Job.updated_at < cutoff,
+            )
+            eligible = session.scalar(select(func.count()).select_from(Job).where(predicate)) or 0
+            deleted = 0
+            if not dry_run and eligible:
+                deleted = session.execute(delete(Job).where(predicate)).rowcount or 0
+                if deleted:
+                    audit.record(
+                        session,
+                        request_id=str(uuid.uuid4()),
+                        actor_kind="system",
+                        actor_id=None,
+                        event="jobs_pruned",
+                        decision="allow",
+                    )
+                session.commit()
+            return {
+                "state": "pruned",
+                "dry_run": dry_run,
+                "eligible": int(eligible),
+                "deleted": int(deleted),
+                "retention_days": older_than_days,
+                "cutoff": cutoff.isoformat(),
+            }
+
     def inspect(
         self, principal: Principal | None, job_id: str
     ) -> dict[str, Any]:
@@ -465,16 +513,33 @@ class Jobs:
             return serialize_job(job, runs)
 
     def list_jobs(
-        self, principal: Principal | None, *, limit: int = 50
+        self,
+        principal: Principal | None,
+        *,
+        limit: int = 50,
+        before: tuple[datetime, str] | None = None,
     ) -> list[dict[str, Any]]:
+        """Stable keyset listing: newest first, (created_at, id) tiebreaker."""
         if type(limit) is not int or not 1 <= limit <= 200:
             raise JobError("invalid_request", 422)
         with self.sessions() as session:
-            statement = select(Job).order_by(Job.created_at.desc(), Job.id).limit(limit)
+            statement = (
+                select(Job)
+                .order_by(Job.created_at.desc(), Job.id.desc())
+                .limit(limit)
+            )
             if principal is not None:
                 if not is_active(session, principal):
                     raise JobError("credential_revoked", 401)
                 statement = statement.where(Job.client_id == principal.client_id)
+            if before is not None:
+                created_at, identifier = before
+                statement = statement.where(
+                    or_(
+                        Job.created_at < created_at,
+                        and_(Job.created_at == created_at, Job.id < identifier),
+                    )
+                )
             return [serialize_job(job) for job in session.scalars(statement).all()]
 
     def set_paused(
@@ -612,8 +677,6 @@ class Jobs:
         return results
 
     async def execute_claim(self, job: Job, worker_id: str) -> dict[str, Any]:
-        import asyncio
-
         kind = self._kinds.get(job.kind)
         started = self.clock()
         if kind is None:
@@ -669,6 +732,20 @@ class Jobs:
                 )
             else:
                 outcome = JobOutcome(state="failed", error=code)
+        except asyncio.CancelledError:
+            # Shutdown or supervisor cancellation. A mutating handler may already
+            # have applied an effect and its result is unknowable here, so record
+            # that honestly instead of leaving the job claimable on lease expiry.
+            try:
+                self._finalize(
+                    job,
+                    JobOutcome(
+                        state="outcome_unknown" if kind.mutating else "cancelled",
+                        error="interrupted" if kind.mutating else "cancelled",
+                    ),
+                )
+            finally:
+                raise
         except JobError as exc:
             outcome = JobOutcome(state="failed", error=exc.code)
         except Exception:

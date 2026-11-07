@@ -20,11 +20,12 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -38,6 +39,7 @@ from .db import (
     new_id,
     now,
 )
+from .observability import record_component_outcome
 from .policy import ChatId
 from .schemas import Batch, Send
 
@@ -183,6 +185,9 @@ def serialize_run(run: WorkflowRun) -> dict[str, Any]:
         "correlation_id": run.correlation_id,
         "steps": run.steps,
     }
+
+
+PRUNEABLE_RUN_STATES = frozenset({"succeeded", "partial_failure", "failed", "outcome_unknown"})
 
 
 class Workflows:
@@ -532,6 +537,7 @@ class Workflows:
         *,
         dry_run: bool = False,
     ) -> dict[str, Any]:
+        record_component_outcome("workflows", state, kind="run")
         encoded = self._bounded_steps(steps)
         with self.sessions() as session:
             run = session.get(WorkflowRun, run_id)
@@ -577,17 +583,36 @@ class Workflows:
 
     # -- history and recovery ---------------------------------------------
 
-    def runs(self, workflow_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    def runs(
+        self,
+        workflow_id: str,
+        *,
+        limit: int = 50,
+        before: tuple[datetime, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Stable keyset listing: newest first, (started_at, id) tiebreaker."""
         if type(limit) is not int or not 1 <= limit <= 200:
             raise WorkflowError("invalid_request", 422)
         with self.sessions() as session:
             self._get(session, workflow_id)
-            rows = session.scalars(
+            statement = (
                 select(WorkflowRun)
                 .where(WorkflowRun.workflow_id == workflow_id)
-                .order_by(WorkflowRun.started_at.desc(), WorkflowRun.id)
+                .order_by(WorkflowRun.started_at.desc(), WorkflowRun.id.desc())
                 .limit(limit)
-            ).all()
+            )
+            if before is not None:
+                started_at, identifier = before
+                statement = statement.where(
+                    or_(
+                        WorkflowRun.started_at < started_at,
+                        and_(
+                            WorkflowRun.started_at == started_at,
+                            WorkflowRun.id < identifier,
+                        ),
+                    )
+                )
+            rows = session.scalars(statement).all()
             return [serialize_run(row) for row in rows]
 
     def get_run(self, run_id: str) -> dict[str, Any]:
@@ -596,6 +621,52 @@ class Workflows:
             if run is None or len(run_id) != 36:
                 raise WorkflowError("run_not_found", 404)
             return serialize_run(run)
+
+    def prune_runs(
+        self,
+        *,
+        older_than_days: int,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Delete finished workflow runs older than the retention window.
+
+        A `running` or otherwise unfinished run is never pruned: its recovery
+        semantics depend on the record still existing.
+        """
+        if type(older_than_days) is not int or not 1 <= older_than_days <= 36500:
+            raise WorkflowError("invalid_request", 422)
+        if type(dry_run) is not bool:
+            raise WorkflowError("invalid_request", 422)
+        cutoff = now() - timedelta(days=older_than_days)
+        with self.sessions() as session:
+            predicate = and_(
+                WorkflowRun.state.in_(sorted(PRUNEABLE_RUN_STATES)),
+                WorkflowRun.started_at < cutoff,
+            )
+            eligible = (
+                session.scalar(select(func.count()).select_from(WorkflowRun).where(predicate)) or 0
+            )
+            deleted = 0
+            if not dry_run and eligible:
+                deleted = session.execute(delete(WorkflowRun).where(predicate)).rowcount or 0
+                if deleted:
+                    audit.record(
+                        session,
+                        request_id=str(uuid.uuid4()),
+                        actor_kind="system",
+                        actor_id=None,
+                        event="workflow_runs_pruned",
+                        decision="allow",
+                    )
+                session.commit()
+            return {
+                "state": "pruned",
+                "dry_run": dry_run,
+                "eligible": int(eligible),
+                "deleted": int(deleted),
+                "retention_days": older_than_days,
+                "cutoff": cutoff.isoformat(),
+            }
 
     def recover_interrupted(self) -> list[dict[str, Any]]:
         """Resolve runs whose process died. Mutations may have occurred."""

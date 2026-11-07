@@ -117,7 +117,8 @@ def test_save_missing_reply_and_invalid_input(api, settings):
         },
     )
     assert invalid.status_code == 422
-    assert invalid.json() == {"error": "invalid_request"}
+    assert invalid.json()["error"] == "invalid_request"
+    assert invalid.json()["status"] == 422 and invalid.json()["retryable"] is False
 
 
 def test_owner_delegated_save_applies_client_policy(api, settings):

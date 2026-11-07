@@ -32,6 +32,9 @@ class Settings:
     max_request_bytes: int = 2 * 1024 * 1024
     synthetic_state_dir: Path | None = None
     media_staging_dir: Path | None = None
+    # Application log level. DEBUG is intentionally unavailable: it would make
+    # third-party libraries emit payloads that the redaction allowlist cannot cover.
+    log_level: str = "INFO"
 
     def __post_init__(self) -> None:
         if len(self.owner_token) < 32:
@@ -45,6 +48,8 @@ class Settings:
             raise ValueError("invalid operation timeout")
         if not (1024 <= self.max_request_bytes <= 20 * 1024 * 1024):
             raise ValueError("invalid maximum request size")
+        if self.log_level not in {"INFO", "WARNING", "ERROR", "CRITICAL"}:
+            raise ValueError("invalid log level")
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -67,6 +72,7 @@ class Settings:
         )
         state_dir = os.getenv("TG_SYNTHETIC_STATE_DIR")
         staging_dir = os.getenv("TG_MEDIA_STAGING_DIR")
+        log_level = os.getenv("TG_LOG_LEVEL", "INFO").strip().upper() or "INFO"
         return cls(
             database_url,
             owner,
@@ -75,4 +81,5 @@ class Settings:
             origins,
             synthetic_state_dir=Path(state_dir) if state_dir else None,
             media_staging_dir=Path(staging_dir) if staging_dir else None,
+            log_level=log_level,
         )

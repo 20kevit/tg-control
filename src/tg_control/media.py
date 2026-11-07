@@ -197,6 +197,19 @@ class MediaPipeline:
     def account_usage(self, account_id: str) -> int:
         return self._usage(_account_dir(self.root, account_id))
 
+    def status(self) -> dict:
+        """Bounded, path-free staging health for operational endpoints."""
+        try:
+            return {
+                "available": True,
+                "total_bytes": self.total_usage(),
+                "max_total_bytes": self.limits.total_bytes,
+                "chunk_bytes": CHUNK_SIZE,
+                "active_transfers": self._active,
+            }
+        except OSError:
+            return {"available": False}
+
     def total_usage(self) -> int:
         total = 0
         for entry in self.root.iterdir():

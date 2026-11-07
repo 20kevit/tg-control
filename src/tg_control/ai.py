@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import audit
 from .auth import Principal, is_active
+from .observability import METRICS, record_component_outcome
 
 DEFAULT_TIMEOUT_SECONDS = 20.0
 DEFAULT_MAX_COST_USD = 0.05
@@ -328,6 +329,14 @@ class AIService:
             "success",
             None,
         )
+        record_component_outcome("ai", "success", kind="task")
+        METRICS.incr(
+            "tg_control_ai_tokens_total",
+            kind="input",
+            outcome="success",
+            component="ai",
+            amount=float(result.input_tokens),
+        )
         return {
             "task": spec.name,
             "version": spec.version,
@@ -352,6 +361,7 @@ class AIService:
         status_code: int,
     ) -> AIError:
         self._audit(principal, task_name, request_id, "failure", code)
+        record_component_outcome("ai", "timeout" if code == "timeout" else "failure", kind="task")
         return AIError(code, status_code)
 
     def _audit(

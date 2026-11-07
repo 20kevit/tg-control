@@ -222,7 +222,8 @@ def test_job_lifecycle_over_http(api, settings):
     assert api.get("/v1/admin/jobs", headers=auth(token)).status_code == 401
     other = api.post("/v1/admin/clients", headers=owner, json={"name": "other job client"}).json()
     assert api.get(f"/v1/jobs/{job_id}", headers=auth(other["credential"])).status_code == 404
-    assert api.get("/v1/jobs", headers=auth(other["credential"])).json() == {"jobs": []}
+    empty_page = api.get("/v1/jobs", headers=auth(other["credential"])).json()
+    assert empty_page["jobs"] == [] and empty_page["page"]["has_more"] is False
 
 
 def test_job_validation_and_authorization_errors(api, settings):

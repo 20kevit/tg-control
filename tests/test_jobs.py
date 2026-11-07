@@ -623,3 +623,33 @@ async def test_gateway_execution_key_prevents_duplicate_delayed_effect(database,
         assert stored.state == "succeeded"
     history = await adapter.execute(account.id, "history", "public-channel", {"limit": 100})
     assert sum(1 for message in history["messages"] if message["text"] == "once only") == 1
+
+
+async def test_cancelled_execution_is_recorded_as_unknown_and_never_retried(database, jobs, clock):
+    """Shutdown during a mutating handler must not leave a retryable claim."""
+    with database() as session:
+        account = make_account(session)
+        client, principal = make_client(session)
+        grant(session, client, account)
+    created = await enqueue(jobs, principal, clock, payload={"value": 1, "mode": "orphan"})
+    claimed = jobs.claim("worker-shutdown")
+    assert len(claimed) == 1
+    task = asyncio.create_task(jobs.execute_claim(claimed[0], "worker-shutdown"))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    job_id = created["job_id"]
+    with database() as session:
+        job = session.get(Job, job_id)
+        assert job.state == "outcome_unknown"
+        assert job.last_error == "interrupted"
+        run_states = [
+            run.state
+            for run in session.scalars(select(JobRun).where(JobRun.job_id == job_id)).all()
+        ]
+    assert run_states == ["outcome_unknown"]
+    # Recovery must not resurrect or retry the interrupted mutation.
+    assert jobs.recover_expired_leases() == []
+    with database() as session:
+        assert session.get(Job, job_id).state == "outcome_unknown"
