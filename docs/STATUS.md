@@ -39,6 +39,15 @@ Analytical completion estimates (not repository metrics): approximately 70–75%
 - Verification: `.venv/bin/pytest -q` — **303 passed, one optional native probe skipped**, one benign `XDG_RUNTIME_DIR` warning; `ruff check src tests alembic scripts` passed. Synthetic fixtures and a disposable SQLite database only.
 - Limitations: only the `send` action kind; manual trigger only (event triggers are unapproved); no workflow UI; step-level timeouts depend on cooperative adapters; live Telegram data, AI tasks, plugins, deployment and the legal gate remain blocked or unimplemented.
 
+
+## AI task contract and first-party plugins (2026-11-07)
+
+- `src/tg_control/ai.py` implements the provider-independent task contract: strict typed inputs/outputs, capability-declared providers with explicit selection, input-size and worst-case cost budgets, timeout/cancellation, retries only for explicit retryable not-applied failures, schema-validated output, usage reporting and audit without input or output text. Telegram references and credential-like keys are refused before a provider is selected; no flag or override relaxes this. The shipped catalog is empty because no AI utility is approved.
+- `src/tg_control/plugins.py` implements strict first-party manifests, install-without-execution, explicit owner capability grants, trusted module binding, delegated-client execution through Core, capability checks, action timeouts, per-minute rate limits, failure counters, quarantine and sanitized audit. Owner-only HTTP routes expose the registry; no plugin is installed by default.
+- Files: `src/tg_control/{ai,plugins,api}.py`, `tests/{test_ai,test_ai_api,test_plugins,test_plugins_api}.py`, `docs/{ADR,API,ACCEPTANCE,ROADMAP,TESTING,COMMANDS_MEDIA_AI_PLUGINS}.md`. No schema change for these two areas.
+- Verification: `.venv/bin/pytest -q` — **325 passed, one optional native probe skipped**, one benign `XDG_RUNTIME_DIR` warning; `ruff check src tests alembic scripts` passed. All AI/plugin evidence is synthetic (fake provider, synthetic adapter, in-process module); no real provider, marketplace or third-party code is involved.
+- Limitations: no approved AI utility or real provider; no cost ledger; no remote plugin distribution, signature verification or process sandbox; MCP/CLI/UI exposure and live Telegram data remain blocked.
+
 ## Material open work
 
 1. Native TDLib adapter integration, authorization state machine, update/synchronization loop, session recovery, actual history/search semantics, media transfer, and asynchronous send terminal outcomes. This work may be developed and tested with offline/synthetic harnesses only; no real account login or real data.

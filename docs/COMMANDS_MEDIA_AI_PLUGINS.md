@@ -174,3 +174,9 @@ Shared foundations above should support these modules. Do not add autonomous bac
 - AI: provider contract conformance, exact-input-only, explicit invocation, no background invocation, output validation, budgets/timeouts/cancel, provider failure, revocation, synthetic-only enforcement.
 - Plugins: manifest validation, compatibility, capability denial, disabled/degraded states, failure isolation, resource limits, audit, and no Core/Policy bypass.
 - Candidate modules remain visibly unapproved until owner confirms their user-facing behavior.
+
+### Wave update (2026-11-07): AI contracts and first-party plugins
+
+- AI task contract: implemented as provider-independent infrastructure only. `src/tg_control/ai.py` defines strict task input/output models, provider capability declarations, explicit provider selection, budgets (input size and estimated cost), timeouts, cancellation, conservative retry rules, output validation, usage reporting and sanitized audit. The application registers no task; `GET /v1/ai/tasks` is empty and every unapproved utility remains a Candidate. Telegram-derived input is rejected structurally and no configuration flag can enable it.
+- Plugin manifest and registry: implemented for first-party modules. `src/tg_control/plugins.py` validates manifests (semver, known extension points and capabilities, budgets, `$secret:` references, no admin capability), requires explicit owner grants and a bound module before enable, executes through Core under one delegated client, and contains failures with timeouts, per-minute rate limits, failure counters and quarantine.
+- Not implemented or not approved: real AI providers or utilities, cost accounting storage, remote plugin distribution/signing, marketplace, process-level plugin sandboxing, MCP/CLI/UI exposure of these surfaces, live Telegram data and deployment. No live integration has been verified.

@@ -28,6 +28,7 @@ from . import audit
 from .adapters.base import TelegramAdapter
 from .adapters.synthetic import SyntheticAdapter
 from .adapters.synthetic_store import SyntheticStore
+from .ai import AIError, AIService
 from .auth import (
     Principal,
     active_principal,
@@ -56,6 +57,12 @@ from .jobs import JobError, Jobs, Schedule
 from .mcp_server import RemoteBackend, create_mcp_server
 from .media import MediaPipeline
 from .monitoring import SessionMonitorProgress
+from .plugins import (
+    PluginCapability,
+    PluginError,
+    PluginManifest,
+    PluginRegistry,
+)
 from .policy import ChatId, GrantInput
 from .request_audit import BoundaryAudit, RequestAudit, request_id_context
 from .schemas import Batch
@@ -129,6 +136,16 @@ class OwnerSaveRequest(StrictModel):
     idempotency_key: UUID
 
 
+class PluginGrantRequest(StrictModel):
+    capabilities: Annotated[list[PluginCapability], Field(min_length=1, max_length=16)]
+
+
+class AITaskRunRequest(StrictModel):
+    input: dict = Field(default_factory=dict)
+    provider: Annotated[str, Field(min_length=1, max_length=64)]
+    model: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+
+
 class JobCreateRequest(StrictModel):
     kind: Annotated[str, Field(min_length=1, max_length=48)]
     input: dict = Field(default_factory=dict)
@@ -179,6 +196,8 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
         handler_timeout_seconds=settings.operation_timeout_seconds,
     )
     register_first_party_kinds(jobs, gateway)
+    ai = AIService(sessions)
+    plugins = PluginRegistry(sessions, gateway)
     workflows = Workflows(
         sessions, gateway, step_timeout_seconds=settings.operation_timeout_seconds
     )
@@ -328,6 +347,8 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     app.state.media = media
     app.state.commands = commands
     app.state.workflows = workflows
+    app.state.ai = ai
+    app.state.plugins = plugins
     app.state.jobs = jobs
 
     def record_auth_failure() -> None:
@@ -400,6 +421,17 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     @app.exception_handler(BatchRejected)
     async def batch_error(_request: Request, exc: BatchRejected):
         return JSONResponse({"error": exc.code, "items": exc.items}, status_code=exc.status_code)
+
+    @app.exception_handler(PluginError)
+    async def plugin_error(_request: Request, exc: PluginError):
+        return JSONResponse({"error": exc.code}, status_code=exc.status_code)
+
+    @app.exception_handler(AIError)
+    async def ai_error(_request: Request, exc: AIError):
+        body: dict = {"error": exc.code}
+        if exc.retry_after is not None:
+            body["retry_after"] = exc.retry_after
+        return JSONResponse(body, status_code=exc.status_code)
 
     @app.exception_handler(WorkflowError)
     async def workflow_error(_request: Request, exc: WorkflowError):
@@ -931,6 +963,61 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
             owner_audit(session, "workflow_recover")
             session.commit()
         return {"recovered": recovered}
+
+    # -- AI task contract (no user-facing utility is approved) -----------
+
+    @app.get("/v1/ai/tasks")
+    async def list_ai_tasks(principal: Principal = Depends(client_principal)):
+        return {"tasks": ai.catalog()}
+
+    @app.post("/v1/ai/tasks/{task_name}/run")
+    async def run_ai_task(
+        task_name: str,
+        data: AITaskRunRequest,
+        principal: Principal = Depends(client_principal),
+    ):
+        # The catalog is empty until the owner approves an exact utility; an unknown
+        # task returns 404 and never falls back to another provider or task.
+        if not task_name.replace(".", "").replace("_", "").isalnum():
+            raise HTTPException(status_code=404, detail="unknown_task")
+        return await ai.invoke(
+            principal,
+            task_name,
+            data.input,
+            provider_name=data.provider,
+            model=data.model,
+            request_id=request_id_context.get(),
+        )
+
+    @app.get("/v1/admin/ai/providers", dependencies=[Depends(owner)])
+    async def list_ai_providers():
+        return {"providers": ai.providers()}
+
+    # -- first-party plugins (owner-installed, capability-granted) -------
+
+    @app.get("/v1/admin/plugins", dependencies=[Depends(owner)])
+    async def list_plugins():
+        return {"plugins": plugins.list()}
+
+    @app.post("/v1/admin/plugins", status_code=201, dependencies=[Depends(owner)])
+    async def install_plugin(manifest: PluginManifest):
+        return plugins.install(manifest)
+
+    @app.get("/v1/admin/plugins/{plugin_id}", dependencies=[Depends(owner)])
+    async def get_plugin(plugin_id: str):
+        return plugins.get(plugin_id)
+
+    @app.post("/v1/admin/plugins/{plugin_id}/grant", dependencies=[Depends(owner)])
+    async def grant_plugin(plugin_id: str, data: PluginGrantRequest):
+        return plugins.grant(plugin_id, data.capabilities)
+
+    @app.post("/v1/admin/plugins/{plugin_id}/enable", dependencies=[Depends(owner)])
+    async def enable_plugin(plugin_id: str):
+        return plugins.enable(plugin_id)
+
+    @app.post("/v1/admin/plugins/{plugin_id}/disable", dependencies=[Depends(owner)])
+    async def disable_plugin(plugin_id: str):
+        return plugins.disable(plugin_id)
 
     @app.get("/", include_in_schema=False)
     async def index():

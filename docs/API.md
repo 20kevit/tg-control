@@ -72,3 +72,22 @@ All routes below require the owner credential; client credentials receive `401`.
 - `POST /v1/admin/workflows/recover`: resolves runs left `running` by a previous process to `outcome_unknown` (startup does this automatically).
 
 No event or message trigger exists. Nothing runs merely because a message arrived or resembles a command.
+
+## AI task contract (no approved utility)
+
+- `GET /v1/ai/tasks` (client): catalog of registered tasks. The shipped application registers none, so this returns an empty list until the owner approves an exact utility.
+- `POST /v1/ai/tasks/{task}/run` (client): `{input, provider, model?}`. Unknown task, provider or model are `404`/`422`; there is no fallback. `input` must contain only task-declared fields. Any Telegram reference (`chat_id`, `account_id`, `message_id`, `messages`, `media`, ...) or credential-like key is refused with `422 compliance_blocked`/`invalid_input` before a provider is called. Oversized input is `413 input_too_large`; budgets `422 budget_exceeded`; provider timeout `504 timeout`; transient, not-applied provider failure `502 provider_unavailable`; ambiguous or malformed output `502 provider_error`/`invalid_output`. Responses carry `task`, `version`, `provider`, `model`, validated `output` and `usage` (tokens, estimated cost in USD, latency, attempts).
+- `GET /v1/admin/ai/providers` (owner): declared capabilities of configured providers.
+
+No AI request may include message content under the current compliance gate; the endpoint and provider adapters are synthetic-only.
+
+## Plugins
+
+Owner-only (`401` for client credentials).
+
+- `POST /v1/admin/plugins` (201): install a manifest `{plugin_id, display_name, publisher, version, sdk_range, entry_point, extension_points[], capabilities[], client_id, account_ids[], budgets, config, health_check}`. Validation rejects unknown/duplicate capabilities, `admin`-style escalation, inconsistent extension points, non-semver versions, incompatible SDK ranges, malformed ids/entry points, nested configuration and inline secrets (only `$secret:name` references are accepted). Reinstalling the same version is `409 duplicate_plugin`; a non-increasing version is `422 downgrade_rejected`.
+- `GET /v1/admin/plugins`, `GET /v1/admin/plugins/{plugin_id}`: state (`installed`, `enabled`, `disabled`, `quarantined`), granted capabilities, consecutive failures and module binding.
+- `POST /v1/admin/plugins/{plugin_id}/grant` `{capabilities}`: owner grants declared capabilities only (`422 capability_not_declared`).
+- `POST .../enable`: requires a bound first-party module and every declared capability granted (`409 module_not_bound`, `403 capability_not_granted`). `POST .../disable` stops use immediately.
+
+A plugin never receives raw credentials, never acts for a client other than its delegated one, and cannot reach Core outside the capability-checked runtime. Actions are timeout-bounded and rate-limited; repeated failures quarantine the plugin (`plugin_timeout` `504`, `plugin_rate_limited` `429`, `plugin_error` `502`).
