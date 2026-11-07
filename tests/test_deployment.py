@@ -217,6 +217,16 @@ def test_hosted_ci_workflow_is_pinned_least_privilege_and_runs_the_local_gate():
     # installed afterward so they cannot move the runtime surface.
     assert "--require-hashes -r requirements.lock" in raw
     assert "python -m pip check" in raw
+    # The smoke script exercises the schema gate in both directions: preflight
+    # must refuse an unmigrated database and pass after the migration service.
+    assert "preflight passed on an unmigrated database" in smoke
+    assert smoke.index("refuse to pass before migrations") < smoke.index(
+        "docker compose run --rm migrate"
+    )
+    assert smoke.index("preflight after migration") > smoke.index(
+        "docker compose run --rm migrate"
+    )
+
     # The container job runs deployment assertions that import the application,
     # so it must install the runtime dependencies before pytest runs (otherwise
     # pytest exits 4 and the job is red for an environment reason).

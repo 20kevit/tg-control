@@ -133,7 +133,8 @@ jobs:
         run: |
           set -o pipefail
           bash scripts/container_smoke.sh 2>&1 | tee container-smoke.log || {
-            echo "::error title=container-smoke::$(tail -n 3 container-smoke.log | tr '\n' ' ')"
+            REASON="$(grep -E '^FAIL:|\[FAIL\]|\[ERROR\]' container-smoke.log | tail -n 4 | tr '\n' ' ')"
+            echo "::error title=container-smoke::${REASON:-$(tail -n 3 container-smoke.log | tr '\n' ' ')}"
             exit 1
           }
 

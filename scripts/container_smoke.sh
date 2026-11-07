@@ -52,11 +52,17 @@ fi
 TOKEN="$(cat secrets/owner_token)"
 [ -n "$TOKEN" ] || fail "owner token file is empty"
 
-log "read-only deployment preflight"
-docker compose run --rm --no-deps --entrypoint python gateway -m tg_control.preflight
+log "read-only preflight must refuse to pass before migrations are applied"
+if docker compose run --rm --no-deps --entrypoint python gateway \
+    -m tg_control.preflight; then
+  fail "preflight passed on an unmigrated database; the schema gate is not working"
+fi
 
 log "migrate explicitly (one-shot service)"
 docker compose run --rm migrate
+
+log "read-only deployment preflight after migration"
+docker compose run --rm --no-deps --entrypoint python gateway -m tg_control.preflight
 
 log "start gateway"
 docker compose up -d --wait --wait-timeout 240 gateway
