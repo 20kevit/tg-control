@@ -70,7 +70,10 @@ jobs:
         run: |
           set -o pipefail
           if ! PYTHON=python scripts/ci.sh 2>&1 | tee pytest.log; then
-            echo "::error title=local-gate::$(grep -E 'FAILED|ERROR|error:|Traceback' pytest.log | tail -n 3 | tr '\n' ' ')"
+            # The runner shell runs with -e, so a non-matching grep inside a
+            # command substitution would abort before the annotation is printed.
+            REASON="$(grep -E 'FAILED|ERROR|error:|Traceback' pytest.log | tail -n 3 | tr -d '\r' | tr '\n' ' ' || true)"
+            printf '::error title=local-gate::%s\n' "${REASON:-local gate failed}"
             exit 1
           fi
 
@@ -133,9 +136,12 @@ jobs:
         run: |
           set -o pipefail
           bash scripts/container_smoke.sh 2>&1 | tee container-smoke.log || {
-            REASON="$(grep -aE '^FAIL:|\[FAIL\]|\[ERROR\]' container-smoke.log | tail -n 4 | tr -d '\r' | tr '\n' ' ' | cut -c1-400)"
-            [ -n "$REASON" ] || REASON="$(tail -n 3 container-smoke.log | tr -d '\r' | tr '\n' ' ' | cut -c1-400)"
-            printf '::error title=container-smoke::%s\n' "$REASON"
+            # Same -e hazard: every grep must be allowed to match nothing.
+            REASON="$(grep -aE '^FAIL:|\[FAIL\]|\[ERROR\]' container-smoke.log | tail -n 4 | tr -d '\r' | tr '\n' ' ' | cut -c1-400 || true)"
+            if [ -z "$REASON" ]; then
+              REASON="$(tail -n 3 container-smoke.log | tr -d '\r' | tr '\n' ' ' | cut -c1-400 || true)"
+            fi
+            printf '::error title=container-smoke::%s\n' "${REASON:-container smoke failed}"
             exit 1
           }
 
