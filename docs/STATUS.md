@@ -48,6 +48,15 @@ Analytical completion estimates (not repository metrics): approximately 70–75%
 - Verification: `.venv/bin/pytest -q` — **325 passed, one optional native probe skipped**, one benign `XDG_RUNTIME_DIR` warning; `ruff check src tests alembic scripts` passed. All AI/plugin evidence is synthetic (fake provider, synthetic adapter, in-process module); no real provider, marketplace or third-party code is involved.
 - Limitations: no approved AI utility or real provider; no cost ledger; no remote plugin distribution, signature verification or process sandbox; MCP/CLI/UI exposure and live Telegram data remain blocked.
 
+
+## Offline TDLib boundary harness (2026-11-07)
+
+- Added `src/tg_control/adapters/tdlib_boundary.py`: an offline-only adapter boundary with an injected in-memory transport, a strict authorization transition table, forced `reauth_required` for every credential-bearing state, synthetic-fixture authorization, fail-closed chat classification, protected/auto-delete refusal, deduplicated sequenced bounded update intake, paginated text reads and unreachable mutations.
+- Live construction raises `ComplianceBlocked`; environment variables, configuration flags and developer overrides do not change this. No native library, socket, HTTP client, credential, TDLib parameter or live account is used.
+- Files: `src/tg_control/adapters/tdlib_boundary.py`, `tests/test_tdlib_boundary.py`, `docs/{ADR,ROADMAP,TESTING,STATUS}.md` (ADR-013). No API or schema change; the harness is not wired into the application.
+- Verification: `.venv/bin/pytest -q` — **331 passed, one optional native probe skipped**, one benign `XDG_RUNTIME_DIR` warning; `ruff check src tests alembic scripts` passed. Evidence is synthetic only.
+- Limitations: the live TDLib adapter, authorization/synchronization, protected-content handling, official sponsored-message support and all real-data flows remain unimplemented and blocked by the compliance and owner gates.
+
 ## Material open work
 
 1. Native TDLib adapter integration, authorization state machine, update/synchronization loop, session recovery, actual history/search semantics, media transfer, and asynchronous send terminal outcomes. This work may be developed and tested with offline/synthetic harnesses only; no real account login or real data.
