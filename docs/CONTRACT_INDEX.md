@@ -43,9 +43,11 @@ Every feature matrix row identifies status and links to implementation and tests
 | Events/jobs/workflows | EVENTS_JOBS_WORKFLOWS.md | Event delivery, durable jobs, scheduling, workflow execution |
 | Commands/media/AI/plugins | COMMANDS_MEDIA_AI_PLUGINS.md | Command routing, /save, transfer, AI task adapters, plugin lifecycle |
 | Compliance | COMPLIANCE.md | Telegram terms, AI data-use restrictions, release gates |
-| Delivery/evidence | ROADMAP.md, STATUS.md, ACCEPTANCE.md, TESTING.md | Stages, traceability, tests, blockers |
+| Delivery/evidence | ROADMAP.md, STATUS.md, ACCEPTANCE.md, TESTING.md, TRACEABILITY.md | Stages, requirement-to-code-to-test traceability, tests, blockers |
 
 When a contract is implemented, update its source document and linked API/help/acceptance material in the same change.
+
+`TRACEABILITY.md` is machine-checked: `tests/test_traceability.py` fails if a listed implementation file or test function disappears, or if a test file is missing from the matrix. Regenerate the test inventory when tests are added or renamed.
 
 ## Confirmed product scope
 

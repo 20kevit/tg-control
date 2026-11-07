@@ -43,3 +43,13 @@ CLI and MCP regression tests cover fully successful, mixed-success/failure, malf
 ## Offline TDLib boundary
 
 `tests/test_tdlib_boundary.py` monkeypatches `socket.socket`/`socket.create_connection` to fail and runs authorization, update intake, update draining and paginated history to prove no network path exists. It also asserts `ComplianceBlocked` for live construction even with plausible enabling environment variables, rejects real-looking fixture markers, walks every credential-bearing authorization state to `reauth_required`, rejects unknown states, closes sessions terminally, verifies duplicate/unknown/unsafe update drops, sequence ordering, buffer bounding, pagination with `before_id`, `not_found` for unknown chats, refusal of every mutation operation and the absence of a Saved Messages resolution. All fixtures are synthetic; no native library, TDLib parameter, account or live authentication is involved.
+
+## Traceability
+
+`tests/test_traceability.py` keeps `docs/TRACEABILITY.md` honest: every referenced implementation path must exist, every listed `tests/test_*.py::test_name` must still exist, every test file must appear in the matrix, and the matrix must not contain live or production-readiness claims. Regenerate after adding, renaming or removing tests:
+
+```
+python scripts/gen_traceability.py
+```
+
+The matrix covers 17 requirement areas and the full executed-test inventory. It proves mapping and execution, not product correctness, and deliberately contains no rows for unimplemented areas (live TDLib adapter, real AI providers, remote plugin distribution, deployment).

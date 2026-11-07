@@ -57,6 +57,14 @@ Analytical completion estimates (not repository metrics): approximately 70–75%
 - Verification: `.venv/bin/pytest -q` — **331 passed, one optional native probe skipped**, one benign `XDG_RUNTIME_DIR` warning; `ruff check src tests alembic scripts` passed. Evidence is synthetic only.
 - Limitations: the live TDLib adapter, authorization/synchronization, protected-content handling, official sponsored-message support and all real-data flows remain unimplemented and blocked by the compliance and owner gates.
 
+
+## Requirement traceability (2026-11-07)
+
+- Added `docs/TRACEABILITY.md`: 17 requirement areas mapped to implementation modules, test files and 248 executed test functions, plus a full executed-test inventory.
+- `tests/test_traceability.py` enforces it: every referenced path exists, every listed `file::test` exists, every `tests/test_*.py` is represented, and the matrix must not claim live/production evidence.
+- Verification: `.venv/bin/pytest -q` — **335 passed, one optional native probe skipped**, one benign `XDG_RUNTIME_DIR` warning; `ruff check src tests alembic scripts` passed.
+- Limits: traceability proves mapping and execution, not product correctness or live behavior. Areas without implemented code (live TDLib adapter, real AI providers, remote plugin distribution, deployment) have no green rows.
+
 ## Material open work
 
 1. Native TDLib adapter integration, authorization state machine, update/synchronization loop, session recovery, actual history/search semantics, media transfer, and asynchronous send terminal outcomes. This work may be developed and tested with offline/synthetic harnesses only; no real account login or real data.
