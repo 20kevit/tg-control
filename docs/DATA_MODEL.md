@@ -29,3 +29,7 @@ Staged media bytes are not stored in PostgreSQL. They live under a private stagi
 ## Command audit
 
 `command_save` audit events store the account, source chat and decision/error code. Message text, captions, filenames, media checksums and staging identifiers are never written to audit, logs or MCP responses.
+
+## Workflow definitions and runs (migration `0007`)
+
+`workflows` holds the owner-configured name, current version, enabled flag, typed JSON definition, and the single delegated client whose policy applies. Each update increments `version` and replaces the stored definition; renaming or changing the delegated client is rejected. `workflow_runs` stores an immutable `definition_snapshot` of the version used, state, trigger (`manual` or `dry_run`), timings, correlation ID and a bounded JSON array of per-step outcomes (`index`, `kind`, `status`, sanitized error code, optional message ID). Step outcomes contain no message text, credentials or file paths. Interrupted runs are marked `outcome_unknown` and retained for inspection.

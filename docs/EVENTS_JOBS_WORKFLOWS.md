@@ -16,7 +16,9 @@ Status: required engineering foundation. Implementation remains synthetic-only w
 | 2.3 Scheduling, DST, misfire, pause/resume/cancel, leases, recovery, graceful shutdown | Implemented | `next_local_occurrence`, `skip_misfired`, `claim`, `recover_expired_leases`, `Jobs.close`; corresponding tests in `tests/test_jobs.py` |
 | 2.3 Permission revalidation immediately before execution | Implemented for the registered `telegram.send` kind (Gateway Core recheck) | `src/tg_control/job_kinds.py`; `test_delayed_send_denied_when_policy_revoked_before_execution`, `test_delayed_send_blocked_when_credential_revoked` |
 | 2.4 Definite-failure-only retry, idempotency, unknown-outcome protection | Implemented | `Jobs._finalize`, job-ID idempotency key in `job_kinds.py`; `test_retry_only_for_definite_failures`, `test_gateway_execution_key_prevents_duplicate_delayed_effect` |
-| 3 Workflow engine | Not implemented | See `ROADMAP.md`; no workflow code or schema exists yet |
+| 3.1 Workflow model, versioning, typed conditions/actions | Implemented (manual trigger only) | `src/tg_control/workflows.py`; `tests/test_workflows.py::test_definition_validation_rejects_unsafe_or_unbounded_shapes`, `test_definition_versions_are_immutable_per_run` |
+| 3.2 Execution guarantees: per-step authorization, bounds, loop prevention, dry-run, partial failure, history, restart recovery | Implemented | `Workflows.run`/`_run_action`/`recover_interrupted`; `test_step_denials...`, `test_dry_run_authorizes_without_effects`, `test_step_rechecks_authorization_after_earlier_effect`, `test_interrupted_run_recovery_is_conservative`; HTTP: `tests/test_workflows_api.py` |
+| 3.3 Rule safety (no eval/SQL/URL/shell, no content triggers) | Implemented by construction | typed pydantic models, literal action kinds, `trigger` restricted to `manual` |
 
 Limits: single-process scheduler; ordering/delivery are at-least-once; a client that never acks retains its backlog until event retention removes it (`cursor_expired` then reports the earliest resumable cursor); dead-letter replay is owner-driven; there is no external scheduler HA or webhook transport.
 

@@ -60,6 +60,7 @@ from .policy import ChatId, GrantInput
 from .request_audit import BoundaryAudit, RequestAudit, request_id_context
 from .schemas import Batch
 from .security import SecurityBoundary
+from .workflows import RunRequest, WorkflowError, WorkflowInput, Workflows
 
 SESSION_MONITOR_INTERVAL_SECONDS = 60
 MEDIA_CLEANUP_INTERVAL_SECONDS = 3600
@@ -178,6 +179,9 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
         handler_timeout_seconds=settings.operation_timeout_seconds,
     )
     register_first_party_kinds(jobs, gateway)
+    workflows = Workflows(
+        sessions, gateway, step_timeout_seconds=settings.operation_timeout_seconds
+    )
     instance_guard = InstanceGuard(engine)
     fernet = Fernet(settings.encryption_key)
     monitor_progress = SessionMonitorProgress()
@@ -211,6 +215,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
             )
             await gateway.maintain_media()
             media.cleanup()
+            workflows.recover_interrupted()
             # Resolve any work whose previous owner died before the scheduler starts.
             jobs.recover_expired_leases()
 
@@ -322,6 +327,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     app.state.events = events
     app.state.media = media
     app.state.commands = commands
+    app.state.workflows = workflows
     app.state.jobs = jobs
 
     def record_auth_failure() -> None:
@@ -394,6 +400,10 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     @app.exception_handler(BatchRejected)
     async def batch_error(_request: Request, exc: BatchRejected):
         return JSONResponse({"error": exc.code, "items": exc.items}, status_code=exc.status_code)
+
+    @app.exception_handler(WorkflowError)
+    async def workflow_error(_request: Request, exc: WorkflowError):
+        return JSONResponse({"error": exc.code}, status_code=exc.status_code)
 
     @app.exception_handler(CommandError)
     async def command_error(_request: Request, exc: CommandError):
@@ -867,6 +877,60 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
             actor_kind="owner",
             request_id=request_id_context.get(),
         )
+
+    # -- owner-configured workflows --------------------------------------
+
+    @app.get("/v1/admin/workflows", dependencies=[Depends(owner)])
+    async def list_workflows():
+        return {"workflows": workflows.list()}
+
+    @app.post("/v1/admin/workflows", status_code=201, dependencies=[Depends(owner)])
+    async def create_workflow(data: WorkflowInput):
+        return workflows.create(data, request_id=request_id_context.get())
+
+    @app.get("/v1/admin/workflows/{workflow_id}", dependencies=[Depends(owner)])
+    async def get_workflow(workflow_id: UUID):
+        return workflows.get(str(workflow_id))
+
+    @app.put("/v1/admin/workflows/{workflow_id}", dependencies=[Depends(owner)])
+    async def update_workflow(workflow_id: UUID, data: WorkflowInput):
+        return workflows.update(
+            str(workflow_id), data, request_id=request_id_context.get()
+        )
+
+    @app.post("/v1/admin/workflows/{workflow_id}/enable", dependencies=[Depends(owner)])
+    async def enable_workflow(workflow_id: UUID):
+        return workflows.set_enabled(
+            str(workflow_id), True, request_id=request_id_context.get()
+        )
+
+    @app.post("/v1/admin/workflows/{workflow_id}/disable", dependencies=[Depends(owner)])
+    async def disable_workflow(workflow_id: UUID):
+        return workflows.set_enabled(
+            str(workflow_id), False, request_id=request_id_context.get()
+        )
+
+    @app.post("/v1/admin/workflows/{workflow_id}/run", dependencies=[Depends(owner)])
+    async def run_workflow(workflow_id: UUID, data: RunRequest):
+        return await workflows.run(
+            str(workflow_id), data, request_id=request_id_context.get()
+        )
+
+    @app.get("/v1/admin/workflows/{workflow_id}/runs", dependencies=[Depends(owner)])
+    async def list_workflow_runs(workflow_id: UUID):
+        return {"runs": workflows.runs(str(workflow_id))}
+
+    @app.get("/v1/admin/workflow-runs/{run_id}", dependencies=[Depends(owner)])
+    async def get_workflow_run(run_id: UUID):
+        return workflows.get_run(str(run_id))
+
+    @app.post("/v1/admin/workflows/recover", dependencies=[Depends(owner)])
+    async def recover_workflows():
+        recovered = workflows.recover_interrupted()
+        with sessions() as session:
+            owner_audit(session, "workflow_recover")
+            session.commit()
+        return {"recovered": recovered}
 
     @app.get("/", include_in_schema=False)
     async def index():

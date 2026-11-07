@@ -60,3 +60,15 @@ Ordering is guaranteed only within the gateway's persisted sequence; delayed, du
 - `POST /v1/admin/commands/save` (owner): same body plus `client_id`. The owner explicitly delegates to a named client, so that client's policy applies; this is not a policy bypass and returns `404 client_not_found` if the client is disabled or has no active credential.
 - Outcomes: `200` with `{command, version, status, account_id, source_chat_id, source_message_id, destination_chat_id, has_media, message_id}`; `401 credential_revoked`; `403 denied` / `destination_denied`; `404 unresolved_reply` / `unavailable_source`; `409 duplicate_invocation`; `413` media size/quota; `415 unsupported_media`; `422 unsupported_content` / `invalid_filename` / `invalid_media` / `size_mismatch` / `checksum_mismatch`; `429 rate_limit` (with `retry_after`); `502` upstream failure; `503 outcome_unknown` (`outcome_unknown: true`), never reported as success; `504 timeout`.
 - Staged media lives only in a private server-owned staging directory (`TG_MEDIA_STAGING_DIR`, otherwise a private ephemeral directory), expires after one hour by default and is cleaned up at startup and hourly. No API exposes staging paths or filenames from other accounts.
+
+## Owner-configured workflows
+
+All routes below require the owner credential; client credentials receive `401`. A workflow is created against exactly one named client, whose policy is rechecked for every step.
+
+- `POST /v1/admin/workflows` (201): `{name, trigger: "manual", conditions[], actions[], client_id, stop_on_error, timeout_seconds, enabled}`. At most 10 actions, 8 conditions, 4096 characters per message, 1–120 s runtime. `trigger` values other than `manual`, unknown action kinds and unknown/disabled clients are rejected (`422`).
+- `GET /v1/admin/workflows`, `GET /v1/admin/workflows/{id}`, `PUT /v1/admin/workflows/{id}` (creates a new immutable version; renaming or changing the principal is rejected), `POST .../enable`, `POST .../disable`.
+- `POST /v1/admin/workflows/{id}/run` `{parameters, dry_run}`: executes the enabled workflow. Returns the run with per-step outcomes (`success`, `skipped`, `failure` with a normalized error, `would_execute` for dry runs) and one of `succeeded`, `partial_failure`, `failed`, `outcome_unknown`. A dry run performs authorization only and creates no effects. Steps are idempotent per run and step index, so a repeated step cannot send twice.
+- `GET /v1/admin/workflows/{id}/runs`, `GET /v1/admin/workflow-runs/{run_id}`: bounded execution history with the immutable definition version used.
+- `POST /v1/admin/workflows/recover`: resolves runs left `running` by a previous process to `outcome_unknown` (startup does this automatically).
+
+No event or message trigger exists. Nothing runs merely because a message arrived or resembles a command.

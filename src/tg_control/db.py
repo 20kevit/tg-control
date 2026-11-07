@@ -23,7 +23,7 @@ from sqlalchemy.pool import StaticPool
 
 # Bumped with every additive migration. Startup refuses anything else; it never
 # auto-migrates. Downgrades require explicit approval and a verified backup.
-EXPECTED_SCHEMA_REVISION = "0006"
+EXPECTED_SCHEMA_REVISION = "0007"
 
 
 def now() -> datetime:
@@ -288,3 +288,43 @@ class JobRun(Base):
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     outcome_unknown: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     __table_args__ = (Index("ix_job_runs_job_attempt", "job_id", "attempt", unique=True),)
+
+
+class Workflow(Base):
+    """Owner-configured, versioned, bounded automation definition."""
+
+    __tablename__ = "workflows"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    client_id: Mapped[str] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now, onupdate=now
+    )
+
+
+class WorkflowRun(Base):
+    __tablename__ = "workflow_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    workflow_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    steps: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    error: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    definition_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    __table_args__ = (Index("ix_workflow_runs_workflow_started", "workflow_id", "started_at"),)

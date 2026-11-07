@@ -30,6 +30,15 @@ Analytical completion estimates (not repository metrics): approximately 70–75%
 - Verification: `.venv/bin/pytest -q` — **288 passed, one optional native probe skipped**, one benign `XDG_RUNTIME_DIR` warning; `ruff check src tests alembic scripts` passed. All fixtures and staged bytes are synthetic.
 - Limitations: only `/save` is registered; there is no client-facing streaming download or resumable transfer; the synthetic adapter supplies one in-memory chunk, so real TDLib streaming is unverified; AI tasks, workflows and plugins remain unimplemented; live Telegram data/AI, deployment and the legal gate remain blocked.
 
+
+## Bounded workflow engine (2026-11-07)
+
+- Added owner-configured, versioned workflows with typed linear actions and typed conditions over run parameters. Only manual triggers are approved; event and message triggers are rejected at validation, so no incoming content is ever treated as an instruction or authorization. Definitions reject unknown action kinds, oversized lists/text, invalid timeouts and malformed conditions; there is no expression language, shell, SQL or URL path and no workflow-to-workflow reference.
+- Execution runs through Gateway Core with the explicitly delegated client's principal: each step revalidates credential, account and chat authorization immediately before the effect, records a bounded per-step outcome and uses a deterministic per-run/per-step idempotency key. Runs support stop-on-error or continue-on-error, authorization-only dry runs, immutable definition snapshots, an overall timeout, and conservative `outcome_unknown` resolution of runs interrupted by a crash. Startup resolves interrupted runs; owner endpoints expose definitions, run history and recovery.
+- Files: `src/tg_control/workflows.py`, `src/tg_control/{db,api}.py`, `alembic/versions/0007_workflows.py`, `tests/{test_workflows,test_workflows_api}.py`, `docs/{ADR,API,DATA_MODEL,EVENTS_JOBS_WORKFLOWS,ACCEPTANCE,TESTING,ROADMAP}.md`. Additive migration only; no existing database was migrated.
+- Verification: `.venv/bin/pytest -q` — **303 passed, one optional native probe skipped**, one benign `XDG_RUNTIME_DIR` warning; `ruff check src tests alembic scripts` passed. Synthetic fixtures and a disposable SQLite database only.
+- Limitations: only the `send` action kind; manual trigger only (event triggers are unapproved); no workflow UI; step-level timeouts depend on cooperative adapters; live Telegram data, AI tasks, plugins, deployment and the legal gate remain blocked or unimplemented.
+
 ## Material open work
 
 1. Native TDLib adapter integration, authorization state machine, update/synchronization loop, session recovery, actual history/search semantics, media transfer, and asynchronous send terminal outcomes. This work may be developed and tested with offline/synthetic harnesses only; no real account login or real data.
@@ -37,7 +46,7 @@ Analytical completion estimates (not repository metrics): approximately 70–75%
 3. Remote MCP OAuth/discovery/authorization and ChatGPT connector interoperability remain unimplemented/unverified; static bearer auth is not OAuth.
 4. Docker/Compose runtime build/start and image provenance/scanning remain unverified; configuration has static checks only.
 5. Independent security review, production identity/MFA and auth throttling, external heartbeat/alert delivery, automated retention/pruning, key rotation/recovery, production restore drills, and multi-worker support remain open.
-6. Events, durable jobs, the media pipeline and the `/save` command are implemented and tested synthetically (see the 2026-11-07 entries). Workflow, AI-task and plugin foundations remain unimplemented; the contracts exist and must not be reported as complete.
+6. Events, durable jobs, workflows, the media pipeline and the `/save` command are implemented and tested synthetically (see the 2026-11-07 entries). AI-task and plugin foundations remain unimplemented; the contracts exist and must not be reported as complete.
 7. User-facing candidate modules from competitor research are not approved by default. Implement shared foundations; wait for owner confirmation before activating optional candidates.
 8. Release and real-data operation remain blocked by compliance and explicit owner approval.
 
