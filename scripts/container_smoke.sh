@@ -169,13 +169,15 @@ for secret in secrets/owner_token secrets/encryption_key secrets/postgres_passwo
 done
 log "log scan OK"
 
-log "readiness fails safely when the database is unavailable"
+log "every health route fails closed when the database is unavailable"
+# Audit writes are fail-closed, so liveness is 503 too: the container becomes
+# unhealthy during a database outage rather than reporting a healthy process.
 docker compose stop db
-READY_STATUS="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
-  -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/health/ready || true)"
-[ "$READY_STATUS" = "503" ] || fail "expected 503 readiness without a database, got $READY_STATUS"
-curl -fsS --max-time 5 -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8000/health/live >/dev/null || fail "liveness must not depend on the database"
+for path in /health/live /health/ready /health/dependencies; do
+  STATUS="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+    -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8000$path" || true)"
+  [ "$STATUS" = "503" ] || fail "expected 503 from $path without a database, got $STATUS"
+done
 docker compose start db
 for _ in $(seq 1 60); do
   if health /health/ready >/dev/null 2>&1; then break; fi

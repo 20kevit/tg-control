@@ -148,9 +148,13 @@ Health semantics:
 | `/health/dependencies` | yes | adapter/dependency view used by orchestrators that distinguish degraded from dead |
 
 Readiness returns `503` with `checks.migration != "current"` or
-`checks.schema_objects != "complete"`. Liveness deliberately does not depend on
-the database, so a database outage is reported as *not ready*, not as a crash
-loop.
+`checks.schema_objects != "complete"`. Audit writes are **fail-closed**, so an
+unreachable database makes all three routes return `503`
+(`audit_unavailable`, or `instance_guard_lost` once the advisory lock drops) —
+the container health check therefore turns unhealthy during a database outage
+instead of reporting a healthy process that cannot record anything. That is the
+intended behaviour and is asserted by the
+`database_outage_fail_closed` lifecycle scenario.
 
 Stop behaviour: uvicorn installs a SIGTERM handler, drains in-flight requests,
 runs the lifespan shutdown (scheduler stop, workflow recovery, engine dispose)
@@ -201,7 +205,7 @@ Executed each time `tests/test_runtime_lifecycle.py` (host process) or
 | Database unreachable | exit 3, message names connectivity | host process, executed |
 | Schema behind/ahead/unknown/incomplete | exit 3, `startup.schema_rejected`, no migration attempted | host process, executed |
 | Synthetic state dir group/world-accessible | exit 1, refuses to serve | host process, executed |
-| Database stopped while serving | readiness `503`, liveness `200`, recovery after restart | container script (not executed here) |
+| Database stopped while serving | all health routes `503` (fail-closed audit), recovery after restart | host process, executed (`database_outage_fail_closed`); container variant in the smoke script (not executed here) |
 | SIGTERM while serving | graceful shutdown, `forced_kill: false` | host process, executed |
 | Restart / recreate | data persisted in `./state`, readiness returns | host process restart executed; container recreation blocked |
 
@@ -216,7 +220,7 @@ executed, no leaks). `scripts/container_smoke.sh` performs the same scan over
 |---|---|
 | Dockerfile/Compose static assertions | **Executed locally** (`tests/test_deployment.py`, 9 tests) |
 | Compose YAML parse + security posture | **Executed locally** (`tests/test_operational_config.py`) |
-| Host-process lifecycle, health, graceful stop, restart persistence, failure modes | **Executed locally** (`tests/test_runtime_lifecycle.py` → `scripts/runtime_smoke.py`, 10 scenarios) |
+| Host-process lifecycle, health, graceful stop, restart persistence, database-outage fail-closed, failure modes | **Executed locally** (`tests/test_runtime_lifecycle.py` → `scripts/runtime_smoke.py`, 11 scenarios) |
 | Image build, `docker compose config`, container start/recreate, in-container non-root check, log scan | **Blocked** — no container runtime in the development sandbox (`CapEff: 0`, no socket) |
 | Hosted CI execution of the workflow | **Not executed** — `.github/workflows/ci.yaml` exists and is statically checked, but no run has happened on GitHub |
 | Image/OS vulnerability scan, digest pinning | **Blocked / requires owner action** (network + registry approval) |

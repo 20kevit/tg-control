@@ -118,7 +118,7 @@ least-privilege CI workflow with no publish/deploy path, and a release script
 that refuses `--publish`.
 
 `tests/test_runtime_lifecycle.py` runs `scripts/runtime_smoke.py` against a
-throwaway PostgreSQL server and a real uvicorn subprocess. Ten executed
+throwaway PostgreSQL server and a real uvicorn subprocess. Eleven executed
 scenarios: liveness/readiness/dependency health with owner authentication and
 `401` without it; synthetic API smoke (account, client, policy, send, list) with
 state written to disk; SIGTERM graceful shutdown (`forced_kill: false`,
@@ -126,8 +126,10 @@ state written to disk; SIGTERM graceful shutdown (`forced_kill: false`,
 state; full log scan for the owner token, DSN password and encryption key (no
 leaks); and five failure modes — missing configuration, invalid configuration,
 unreachable database (exit 3), schema mismatch (exit 3, no migration attempted)
-and an insecure state directory (refused). This evidences **host-process**
-lifecycle only; container execution is recorded as blocked.
+an insecure state directory (refused) and a database outage while serving (all
+health routes `503` because audit writes are fail-closed; no route reports
+healthy). This evidences **host-process** lifecycle only; container execution is
+recorded as blocked.
 
 `tests/test_disaster_recovery.py` is the restore drill: seed → back up → verify →
 restore into a separate database and state directory → compare counts, digests

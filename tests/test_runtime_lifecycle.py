@@ -39,8 +39,11 @@ def test_host_process_lifecycle_and_failure_modes():
         "database_unavailable",
         "schema_mismatch_refused",
         "insecure_state_dir_refused",
+        "database_outage_fail_closed",
     ):
         assert required in scenarios, required
         assert scenarios[required]["ok"] is True, scenarios[required]
     assert scenarios["log_secret_scan"]["evidence"]["leaked"] == []
     assert scenarios["graceful_sigterm"]["evidence"]["forced_kill"] is False
+    outage = scenarios["database_outage_fail_closed"]["evidence"]["outage"]
+    assert all(item["status"] == 503 for item in outage.values())

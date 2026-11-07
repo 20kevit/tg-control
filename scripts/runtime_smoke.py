@@ -368,6 +368,66 @@ def scenario_positive(workdir: Path, server) -> None:
     record("log_secret_scan", not leaked, evidence={"leaked": leaked, "log_bytes": len(logs)})
 
 
+def scenario_database_outage(workdir: Path, server) -> None:
+    """Every route fails closed while the database is gone.
+
+    Liveness, readiness and dependency health all require an audit write, so a
+    database outage makes the container health check unhealthy instead of
+    reporting a healthy process. This runs last because it destroys the
+    throwaway PostgreSQL instance.
+    """
+    token = "synthetic-outage-owner-token-" + "o" * 26
+    key = Fernet.generate_key()
+    import psycopg
+
+    with psycopg.connect(server.get_uri(), autocommit=True) as db:
+        db.execute("CREATE DATABASE outage_db")
+    database_url = server.get_uri("outage_db")
+    migrate(database_url)
+    db_file = secret_file(workdir / "outage_db_url", database_url)
+    owner = secret_file(workdir / "outage_owner", token)
+    key_file = secret_file(workdir / "outage_key", key.decode())
+    port = free_port()
+    base = f"http://127.0.0.1:{port}"
+    env = app_env(
+        database_file=db_file,
+        owner_file=owner,
+        key_file=key_file,
+        state_dir=None,
+        origin=base,
+    )
+    log = workdir / "outage.log"
+    process = start_app(env, port, log)
+    started = wait_ready(base, token, process, timeout=60)
+    try:
+        server.cleanup()
+    except Exception:
+        pass
+    time.sleep(1.0)
+    outage = {}
+    for path in ("/health/live", "/health/ready", "/health/dependencies"):
+        status, body = http(f"{base}{path}", token)
+        try:
+            error = json.loads(body or b"{}").get("error", "")
+        except ValueError:
+            error = ""
+        outage[path] = {"status": status, "error": error}
+    stop = stop_app(process, timeout=20)
+    fail_closed = (
+        started
+        and all(item["status"] == 503 for item in outage.values())
+        and all(
+            item["error"] in {"audit_unavailable", "not_ready", "instance_guard_lost"}
+            for item in outage.values()
+        )
+    )
+    record(
+        "database_outage_fail_closed",
+        fail_closed,
+        evidence={"outage": outage, "stopped_without_sigkill": not stop["forced"]},
+    )
+
+
 def scenario_missing_config(workdir: Path) -> None:
     port = free_port()
     env = {
@@ -520,6 +580,9 @@ def main(argv: list[str] | None = None) -> int:
             scenario_database_unavailable(workdir, token, key)
             scenario_schema_mismatch(workdir, server, token, key)
             scenario_insecure_state_dir(workdir, server, token, key)
+        if selector & {"all", "negative"} or selector & {"all", "positive"}:
+            # Destroys the throwaway PostgreSQL instance; must be last.
+            scenario_database_outage(workdir, server)
     except Exception as exc:  # pragma: no cover - harness failure, not app failure
         record("harness", False, detail=f"{type(exc).__name__}: {exc}")
     finally:

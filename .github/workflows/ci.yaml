@@ -86,11 +86,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Validate Dockerfile and Compose statically
+      - name: Validate Dockerfile, Compose and workflow statically
         run: |
-          python3 -m pip install --disable-pip-version-check pyyaml==6.0.3
+          python3 -m pip install --disable-pip-version-check pytest==9.2.0 pyyaml==6.0.3
           python3 -m pytest -q tests/test_deployment.py
-          docker compose config -q
 
       - name: Build image and run the disposable container smoke test
         run: bash scripts/container_smoke.sh 2>&1 | tee container-smoke.log
