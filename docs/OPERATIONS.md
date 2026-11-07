@@ -112,7 +112,7 @@ Every archive records manifest **version 2**: `includes_state`, `app_version`, `
 | Cache entries | TTL (`0` disables) | Every write/invalidate | Process memory only |
 | Logs | host policy | Log rotation / journald | Outside the database; not pruned by the gateway |
 
-Every prune endpoint accepts `dry_run: true`, reports `eligible`/`deleted`, is idempotent (a repeat deletes nothing) and records an audit event. Pruning is deletion from the active store only: filesystem snapshots, backups and WAL can retain older bytes. There is no automatic scheduler-triggered pruning; an operator or external job must call the endpoints. Scheduling that externally is a deployment decision and remains pending.
+Every prune endpoint accepts `dry_run: true`, reports `eligible`/`deleted`, is idempotent (a repeat deletes nothing) and records an audit event. Pruning is deletion from the active store only: filesystem snapshots, backups and WAL can retain older bytes. Optional internal scheduled pruning is described below; external scheduling remains a deployment decision.
 
 ## Troubleshooting
 
@@ -138,10 +138,10 @@ Three paths exist and they never conflict:
 Safety properties of the automatic path:
 
 - It is an alias for the same routines: a queued, scheduled, running, retry-waiting or paused job and a running workflow run are never eligible.
-- It runs only while this process holds the single-instance guard, so it cannot race a second writer.
+- It checks the cooperative single-instance guard before running; noncooperating writers and loss after the check can still race.
 - A fresh process waits a full interval before its first pass, so a short-lived process never deletes anything.
 - One failing step does not stop the others; the pass is recorded as a failure and reported in diagnostics rather than retried in a hot loop.
-- Exactly one metadata-only audit row per pass (`retention_auto_prune`, `decision: allow|deny`, `error_code: retention_failed`). Counts and identifiers are never written to audit.
+- Each pass attempts one metadata-only audit row (`retention_auto_prune`, `decision: allow|deny`, `error_code: retention_failed`). If writing or committing it fails, diagnostics report failure; the missing record cannot be recovered from that diagnostic. Counts and identifiers are never written to audit.
 - `GET /v1/admin/diagnostics` → `retention.auto_prune` reports `state` (`disabled|enabled|invalid`), `interval_minutes`, `last_run_age_seconds` and `last_run_outcome`.
 - Disabling the setting stops future passes immediately; already-deleted history cannot be restored from the repository (restore from a verified backup instead).
 

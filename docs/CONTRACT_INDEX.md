@@ -38,7 +38,7 @@ Every feature matrix row identifies status and links to implementation and tests
 | Product behavior | PRD.md, ARENA.md | Accounts, clients, access, read/write/admin, commands, AI boundaries |
 | Architecture | ARCHITECTURE.md, ADR.md | Core, adapter, storage, interfaces, process topology |
 | External API | API.md, MCP.md, CLI.md, authenticated OpenAPI | Versioned operations, schemas, errors, clients |
-| Authorization | SECURITY.md, POLICY.md | Principals, grants, scopes, exclusions, preauthorization |
+| Authorization | SECURITY.md | Principals, grants, scopes, exclusions, preauthorization |
 | Data and retention | DATA_MODEL.md, OPERATIONS.md | Metadata, isolation, encryption, cache, audit, backup |
 | Events/jobs/workflows | EVENTS_JOBS_WORKFLOWS.md | Event delivery, durable jobs, scheduling, workflow execution |
 | Commands/media/AI/plugins | COMMANDS_MEDIA_AI_PLUGINS.md | Command routing, /save, transfer, AI task adapters, plugin lifecycle |
@@ -50,7 +50,7 @@ Every feature matrix row identifies status and links to implementation and tests
 
 When a contract is implemented, update its source document and linked API/help/acceptance material in the same change.
 
-`TRACEABILITY.md` is machine-checked: `tests/test_traceability.py` fails if a listed implementation file or test function disappears, if a test file is missing from the matrix, or if a row's evidence label is outside the allowed vocabulary. Every row carries Requirement → Contract → Implementation → Test → Executed evidence, and each row is labelled **Implemented**, **Locally tested**, **Container-tested**, **Hosted-CI-tested**, **Not tested**, **Blocked** or **Requires owner action**. `Container-tested` and `Hosted-CI-tested` are reserved for rows backed by a real container run or a real hosted-CI run in `STATUS.md`; the current matrix uses neither. Regenerate the matrix with `python scripts/gen_traceability.py` when tests change.
+`TRACEABILITY.md` is machine-checked: `tests/test_traceability.py` fails if a listed implementation file or test function disappears, if a test file is missing from the matrix, or if a row's evidence label is outside the allowed vocabulary. Rows associate requirement areas, contracts, implementation and test definitions; recorded execution evidence is revision-specific, and each row is labelled **Implemented**, **Locally tested**, **Container-tested**, **Hosted-CI-tested**, **Not tested**, **Blocked** or **Requires owner action**. `Container-tested` and `Hosted-CI-tested` are reserved for rows backed by a real container run or a real hosted-CI run in `STATUS.md`; historical hosted evidence is tied to its exact revision. Regenerate the matrix with `python scripts/gen_traceability.py` when tests change.
 
 ## Confirmed product scope
 

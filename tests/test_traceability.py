@@ -88,14 +88,23 @@ def test_every_area_row_has_an_evidence_label_and_a_contract():
         assert int(row[4]) > 0, f"area {row[0]!r} claims no executed tests"
 
 
-def test_unverified_container_and_ci_claims_are_not_made():
+def test_hosted_pipeline_evidence_has_revision_and_run():
     text = matrix_text()
     rows = [row for row in matrix_rows() if len(row) == 6 and row[0] != "Area"]
-    labels = {row[5] for row in rows}
-    # No container or hosted-CI evidence exists in this environment; the matrix
-    # must say so instead of labelling anything with those levels.
-    assert "Container-tested" not in labels
-    assert "Hosted-CI-tested" not in labels
-    assert "Blocked" in labels and "Not tested" in labels
-    assert "No Docker/Podman/Buildah" in text
-    assert "no GitHub Actions run has occurred" in text
+    hosted = [row for row in rows if row[5] == "Hosted-CI-tested"]
+    assert hosted and all(row[0] == "Hosted CI pipeline" for row in hosted)
+    assert "42401029613" in text
+    assert "59951afad2c05a7aa114d691ee7e73a026272026" in text
+
+
+def test_markdown_local_link_targets_exist():
+    from urllib.parse import unquote, urlsplit
+
+    documents = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
+    for document in documents:
+        for target in re.findall(r"(?<!!)\[[^\]]+\]\(([^)]+)\)", document.read_text()):
+            url = urlsplit(target.split()[0].strip("<>"))
+            if not url.scheme and not url.netloc and url.path:
+                assert (document.parent / unquote(url.path)).exists(), (
+                    f"{document.relative_to(ROOT)}: missing link target {target}"
+                )

@@ -230,7 +230,7 @@ Maintain these as concise, version-controlled documents and keep them aligned wi
 - docs/ARCHITECTURE.md and ADRs for consequential technical choices.
 - docs/API.md or an OpenAPI specification plus MCP tool schemas.
 - docs/SECURITY.md with threat model, trust boundaries, and security controls.
-- docs/POLICY.md with permission/scope truth table and default-deny semantics.
+- docs/SECURITY.md with permission/scope and default-deny semantics.
 - docs/EVENTS_JOBS_WORKFLOWS.md and docs/COMMANDS_MEDIA_AI_PLUGINS.md for event, job, workflow, command, media, AI-task, and plugin contracts.
 - docs/OPERATIONS.md for configuration, health, backup/restore, migrations, and recovery.
 - A test strategy and requirement-to-test traceability matrix.

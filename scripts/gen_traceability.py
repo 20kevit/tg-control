@@ -24,7 +24,7 @@ TESTS = ROOT / "tests"
 LEVELS: dict[str, tuple[str, str]] = {
     "Legal / privacy gate": ("COMPLIANCE.md, PRD.md", "Blocked"),
     "TDLib / accounts (offline boundary)": ("TDLIB_OFFLINE.md", "Locally tested"),
-    "Clients and policy": ("SECURITY.md, POLICY.md", "Locally tested"),
+    "Clients and policy": ("SECURITY.md", "Locally tested"),
     "Read / search / history / media": ("API.md", "Locally tested"),
     "Write / admin / batch": ("API.md", "Locally tested"),
     "Commands and media pipeline": ("COMMANDS_MEDIA_AI_PLUGINS.md", "Locally tested"),
@@ -50,7 +50,7 @@ LEVELS: dict[str, tuple[str, str]] = {
     "Scheduled retention": ("OPERATIONS.md, API.md", "Locally tested"),
     "Dependency audit and coverage": ("TESTING.md, RELEASE_PROCESS.md", "Locally tested"),
     "Release metadata and provenance": ("RELEASE_PROCESS.md", "Locally tested"),
-    "Hosted CI pipeline": ("RELEASE_PROCESS.md", "Not tested"),
+    "Hosted CI pipeline": ("RELEASE_PROCESS.md", "Hosted-CI-tested"),
     "Delivery / evidence": ("ACCEPTANCE.md, TRACEABILITY.md", "Locally tested"),
 }
 
@@ -171,8 +171,9 @@ def main() -> None:
     out = [
         "# Traceability matrix",
         "",
-        "This file maps requirement areas to the implementation modules and the exact "
-        "executed tests that evidence them. It is verified by `tests/test_traceability.py`, "
+        "This file maps requirement areas to implementation modules and associated "
+        "test definitions. Associations do not establish that every requirement was tested. "
+        "It is verified by `tests/test_traceability.py`, "
         "which fails if a listed file or test function disappears or if a test file is "
         "missing from the matrix. Synthetic evidence proves only synthetic behavior; see "
         "`docs/ACCEPTANCE.md` for what remains open.",
@@ -184,15 +185,18 @@ def main() -> None:
         "**Hosted-CI-tested** (executed by the hosted workflow), **Not tested**, "
         "**Blocked** (cannot execute here; limitation recorded in STATUS.md), "
         "**Requires owner action**. Only labels backed by recorded execution appear "
-        "below: no row is Container-tested or Hosted-CI-tested today.",
+        "below. Hosted evidence is limited to the exact revision in STATUS.md.",
         "",
-        "| Area | Contract | Implementation | Test files | Executed tests | Evidence |",
+        "| Area | Contract | Implementation | Test files | Defined tests | Evidence |",
         "|---|---|---|---|---|---|",
     ]
-    appendix = ["", "## Executed test inventory", ""]
+    appendix = ["", "## Test definition inventory", ""]
     for area, sources, test_files in AREAS:
-        existing_sources = [src for src in sources if (ROOT / src).exists()]
-        existing_tests = [path for path in test_files if (ROOT / path).exists()]
+        missing = [path for path in sources + test_files if not (ROOT / path).exists()]
+        if missing:
+            raise SystemExit(f"missing references in {area}: {missing}")
+        existing_sources = sources
+        existing_tests = test_files
         if not existing_sources or not existing_tests:
             raise SystemExit(f"area without evidence: {area}")
         count = sum(len(names.get(path, [])) for path in existing_tests)
@@ -209,18 +213,16 @@ def main() -> None:
         )
     out += [
         "",
-        "## Executed but not yet evidenced in this environment",
+        "## Verification and remaining gaps",
+        "",
+        "Historical hosted workflow [42401029613]"
+        "(https://github.com/20kevit/tg-control/actions/runs/42401029613) "
+        "passed quality and container jobs at commit `59951afad2c05a7aa114d691ee7e73a026272026`. "
+        "Its synthetic container smoke is not VPS, production or live Telegram evidence. "
+        "A subsequent commit requires its own verification; see STATUS.md.",
         "",
         "| Requirement | Contract | Status | Why |",
         "|---|---|---|---|",
-        "| Container image build, in-container non-root check, "
-        "container start/recreate/persistence, database-outage readiness | "
-        "DEPLOYMENT.md | Blocked | No Docker/Podman/Buildah binary, no container "
-        "socket and `CapEff: 0` in the development sandbox. "
-        "`scripts/container_smoke.sh` is ready but unexecuted. |",
-        "| Hosted CI run of `.github/workflows/ci.yaml` | RELEASE_PROCESS.md | "
-        "Not tested | The workflow is committed and statically asserted, but no "
-        "GitHub Actions run has occurred. |",
         "| Image/OS vulnerability scan and base-image digest pinning | "
         "RELEASE_PROCESS.md | Requires owner action | Needs registry/network "
         "access and approval. |",

@@ -1,6 +1,6 @@
 # Execution status
 
-Updated 2026-11-07. Branch: arena/49228e17-tg-control. Earlier dated entries below are historical evidence, not current claims.
+Updated 2026-11-07. Historical entries below record their original branch and environment; they do not verify later commits.
 
 ## Current verified snapshot
 
@@ -8,8 +8,12 @@ The repository has moved beyond the original docs-only baseline (PR #1 merged at
 
 Implemented and exercised against synthetic data: Gateway Core; PostgreSQL models/migrations; client credential issue/rotation/revocation; independent account-scoped Read/Write/Admin policies and exclusions; synthetic discovery/search/history/message/media reads; send/edit/delete/forward/media/admin; batch preauthorization, per-item outcomes, idempotency, retry/deadline handling; authenticated HTTP API; MCP stdio and Streamable HTTP; CLI; owner Web Admin; metadata-only audit; request framing/Host/Origin controls; encrypted synthetic state/media retention; backup/restore; session monitoring; and cooperative single-instance protection.
 
-Analytical completion estimates (not repository metrics): approximately 70–75% of the synthetic prototype/foundation and 35–45% of the complete intended gateway product.
+Historical hosted run [42401029613](https://github.com/20kevit/tg-control/actions/runs/42401029613) passed both quality and container jobs at commit `59951afad2c05a7aa114d691ee7e73a026272026`; this is not evidence of a later commit, VPS, live Telegram, or production operation.
 
+
+## Documentation and retention correction (2026-11-07)
+
+On `arena/81de801c-tg-control`, the coverage-enabled local gate `TG_COVERAGE=1 bash scripts/ci.sh` passed on the working changes: 456 passed, one optional native probe skipped, 87.21% coverage, Ruff and contract/traceability checks clean. This is not hosted or live evidence. Automatic retention now reports a failed audit-record write in process-local diagnostics; the audit row cannot be recovered if the write fails.
 
 ## First real container and hosted-CI evidence (2026-11-07)
 

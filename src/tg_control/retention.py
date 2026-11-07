@@ -9,10 +9,10 @@ bound its own growth without an external cron:
 * only runs while this process holds the single-instance guard;
 * reuses the existing bounded prune paths, so non-terminal jobs and running
   workflow runs are never eligible;
-* records exactly one metadata-only audit row per run (counts and outcomes are
+* attempts one metadata-only audit row per run (counts and outcomes are
   never written to audit, which stores metadata only);
-* one failing step does not abort the others, and a failed run is still audited
-  and reported so operators can see it in diagnostics.
+* one failing step does not abort the others; audit is attempted and failures
+  are reported in diagnostics.
 
 Nothing here deletes credentials, audit of the run itself, configurable state or
 media bytes; media retention stays on the adapter path.
@@ -167,7 +167,9 @@ class RetentionRunner:
         except Exception:
             failed.append("workflows")
         outcome = "failure" if failed else "success"
-        self._record(outcome, failed)
+        if not self._record(outcome, failed):
+            failed.append("audit_record")
+            outcome = "failure"
         return {
             "state": "pruned",
             "outcome": outcome,
@@ -181,8 +183,8 @@ class RetentionRunner:
             "finished_at": datetime.now(timezone.utc).isoformat(),
         }
 
-    def _record(self, outcome: str, failed: list[str]) -> None:
-        """One metadata-only audit row per run; never the counts themselves."""
+    def _record(self, outcome: str, failed: list[str]) -> bool:
+        """Attempt one metadata-only audit row; report write or commit failure."""
         try:
             with self._sessions() as session:
                 self._audit.record(
@@ -195,7 +197,7 @@ class RetentionRunner:
                     error_code="retention_failed" if failed else None,
                 )
                 session.commit()
+            return True
         except Exception:
-            # Audit failure must not crash the maintenance loop; the next run
-            # reports the failure through diagnostics instead.
-            return
+            # Do not crash maintenance or expose exception text.
+            return False

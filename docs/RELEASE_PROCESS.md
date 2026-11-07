@@ -42,7 +42,7 @@ Reproducibility rules:
   same commit produce a **byte-identical** wheel. Verified by
   `test_release_build_is_byte_reproducible` (two builds, equal SHA-256) and
   recorded in `release-provenance.json` (`source_date_epoch`, per-artifact
-  digest). The build backend version itself is not pinned, so a backend upgrade
+  digest). The build backend versions are pinned in `pyproject.toml`, but build dependencies are not hash-locked in isolated builds, so a backend change
   could still change bytes; the recorded digest is the comparison point.
 
 - `requirements.lock` is hash-pinned and installed with `--require-hashes`; the
@@ -76,10 +76,9 @@ in this environment is recorded as **Blocked**, never skipped silently.
       **on a host with a Docker daemon**; otherwise **Blocked**.
 - [ ] `docker compose config` validates and contains no credential values.
 - [ ] Vulnerability scan of the image and Python dependencies executed; results
-      reviewed. `pip-audit`/`trivy` are unavailable in the current environment →
-      **Blocked** until network/registry approval.
+      reviewed. Historical hosted `pip-audit` passed; an image/OS scan remains open and must be repeated for the candidate.
 - [ ] Hosted CI run green on the release commit (`.github/workflows/ci.yaml`).
-      No run has happened yet → **Not executed**.
+      A historical run passed at `59951afad2c05a7aa114d691ee7e73a026272026`; the release commit needs its own run.
 - [ ] Documentation matches the artifact: `DEPLOYMENT.md`, `OPERATIONS.md`,
       `SECURITY.md`, `STATUS.md`, `ACCEPTANCE.md`, `DATA_MODEL.md`,
       `CONTRACT_INDEX.md`, `TRACEABILITY.md`.
