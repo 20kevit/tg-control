@@ -248,6 +248,9 @@ def test_hosted_ci_workflow_is_pinned_least_privilege_and_runs_the_local_gate():
     # The smoke script exercises the schema gate in both directions: preflight
     # must refuse an unmigrated database and pass after the migration service.
     assert "preflight passed on an unmigrated database" in smoke
+    assert "preflight could not reach the database before migration" in smoke
+    assert "preflight failed for an unexpected reason before migration" in smoke
+    assert 'str(uuid.uuid4())' in smoke and "__import__" not in smoke
     assert smoke.index("refuse to pass before migrations") < smoke.index(
         "docker compose run --rm migrate"
     )

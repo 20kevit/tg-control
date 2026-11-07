@@ -77,10 +77,16 @@ log "start database"
 docker compose up -d --wait --wait-timeout 180 db
 
 log "read-only preflight must refuse to pass before migrations are applied"
-if docker compose run --rm --no-deps --entrypoint python gateway \
-    -m tg_control.preflight; then
+PREFLIGHT_BEFORE="$(docker compose run --rm --no-deps --entrypoint python gateway \
+  -m tg_control.preflight 2>&1)" && PREFLIGHT_OK=1 || PREFLIGHT_OK=0
+printf '%s\n' "$PREFLIGHT_BEFORE"
+if [ "$PREFLIGHT_OK" = "1" ]; then
   fail "preflight passed on an unmigrated database; the schema gate is not working"
 fi
+printf '%s' "$PREFLIGHT_BEFORE" | grep -q '\[PASS\] database' \
+  || fail "preflight could not reach the database before migration (expected an unreachable-schema failure, not connectivity)"
+printf '%s' "$PREFLIGHT_BEFORE" | grep -q '\[FAIL\] schema' \
+  || fail "preflight failed for an unexpected reason before migration"
 
 log "migrate explicitly (one-shot service)"
 docker compose run --rm migrate
@@ -116,6 +122,7 @@ import json
 import sys
 import urllib.error
 import urllib.request
+import uuid
 
 token = sys.argv[1]
 base = "http://127.0.0.1:8000"
@@ -160,7 +167,7 @@ def main():
                     "text": "synthetic container smoke",
                 }
             ],
-            "idempotency_key": __import__("uuid").str(__import__("uuid").uuid4()),
+            "idempotency_key": str(uuid.uuid4()),
         },
         credential=client["credential"],
     )
