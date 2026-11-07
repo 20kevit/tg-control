@@ -210,8 +210,16 @@ def test_hosted_ci_workflow_is_pinned_least_privilege_and_runs_the_local_gate():
         "write-all",
     ):
         assert forbidden not in lowered, forbidden
-    # Artifacts are uploaded for diagnosis.
+    # Artifacts are uploaded for diagnosis (test log, audit log, coverage data).
     assert "upload-artifact" in raw
+    assert ".coverage" in raw and "pip-audit.log" in raw
+    # Runtime deps come from the hash lock; dev tools are pinned by version and
+    # installed with --no-deps so they cannot upgrade the runtime surface.
+    assert "--require-hashes -r requirements.lock" in raw
+    assert "python -m pip check" in raw
+    # The gate measures coverage and the workflow audits the lockfile.
+    assert 'TG_COVERAGE: "1"' in raw
+    assert "pip-audit -r requirements.lock --strict" in raw
 
 
 def test_release_build_script_refuses_to_publish_and_records_provenance(tmp_path):

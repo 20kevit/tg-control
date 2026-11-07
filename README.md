@@ -29,6 +29,7 @@ python -m alembic upgrade head
 uvicorn tg_control.api:app_factory --factory --host 127.0.0.1 --port 8000
 .venv/bin/tg-control --token-file <owner-token-file> diagnose   # read-only diagnostics
 .venv/bin/tg-control-backup verify --input <archive> --backup-key-file <key>
+.venv/bin/tg-control-preflight --json   # read-only deployment preflight
 ```
 
 Every error response uses the envelope documented in [API](docs/API.md); list endpoints use scope-bound cursors; health, metrics, logs, retention pruning, backup verification and graceful-shutdown behavior are documented in [operations](docs/OPERATIONS.md). All data is synthetic until the [compliance gate](docs/COMPLIANCE.md) is resolved.

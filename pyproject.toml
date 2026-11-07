@@ -19,18 +19,31 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest==9.2.0", "pytest-asyncio==1.4.1.post1", "ruff==0.17.4", "pgserver==0.1.4", "PyYAML==6.0.3"]
+dev = [
+    "pytest==9.2.0",
+    "pytest-asyncio==1.4.1.post1",
+    "pytest-cov==7.1.0",
+    "ruff==0.17.4",
+    "pgserver==0.1.4",
+    "PyYAML==6.0.3",
+]
 
 [project.scripts]
 tg-control = "tg_control.cli:main"
 tg-control-mcp = "tg_control.mcp_stdio:main"
 tg-control-backup = "tg_control.backup:main"
+tg-control-preflight = "tg_control.preflight:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 tg_control = ["static/*"]
+
+[tool.coverage.run]
+source = ["tg_control"]
+branch = false
+omit = ["*/tg_control/cli.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

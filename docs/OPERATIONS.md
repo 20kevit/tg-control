@@ -127,6 +127,31 @@ Every prune endpoint accepts `dry_run: true`, reports `eligible`/`deleted`, is i
 | Stuck workflow run | `running` after a crash | Resolved to `outcome_unknown` at next start; reconcile the effect |
 | Archive fails to verify | Wrong key file, truncated copy, revision mismatch | Restore from a verified copy; never "repair" ciphertext |
 
+## Retention and automatic pruning
+
+Three paths exist and they never conflict:
+
+1. **Owner-triggered endpoints** (unchanged, default): `POST /v1/admin/maintenance/prune-audit`, `.../prune-events`, `.../prune-jobs`, `.../prune-workflows`. Jobs/workflow pruning takes `{older_than_days, dry_run}` and is dry-run-first.
+2. **Media expiry** on the adapter path (30 days by default, `null` disables) — unchanged.
+3. **Optional automatic pruning** (`auto_prune: true` in the stored retention settings; default **false**): the maintenance loop runs one bounded pass per `auto_prune_interval_minutes` (60–10080, default 1440) using the configured `audit_retention_days`, `event_retention_days` and `history_retention_days`.
+
+Safety properties of the automatic path:
+
+- It is an alias for the same routines: a queued, scheduled, running, retry-waiting or paused job and a running workflow run are never eligible.
+- It runs only while this process holds the single-instance guard, so it cannot race a second writer.
+- A fresh process waits a full interval before its first pass, so a short-lived process never deletes anything.
+- One failing step does not stop the others; the pass is recorded as a failure and reported in diagnostics rather than retried in a hot loop.
+- Exactly one metadata-only audit row per pass (`retention_auto_prune`, `decision: allow|deny`, `error_code: retention_failed`). Counts and identifiers are never written to audit.
+- `GET /v1/admin/diagnostics` → `retention.auto_prune` reports `state` (`disabled|enabled|invalid`), `interval_minutes`, `last_run_age_seconds` and `last_run_outcome`.
+- Disabling the setting stops future passes immediately; already-deleted history cannot be restored from the repository (restore from a verified backup instead).
+
+```sh
+# enable a daily pass keeping 90 days of history
+curl -fsS -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"auto_prune": true, "auto_prune_interval_minutes": 1440, "history_retention_days": 90}' \
+  http://127.0.0.1:8000/v1/admin/settings
+```
+
 ## Deployment lifecycle (single instance)
 
 Startup order is explicit and fail-closed: (1) the one-shot `migrate` service brings the schema to `head`; (2) `db` becomes healthy via `pg_isready`; (3) `gateway` starts and checks `alembic_version` plus the expected table set before binding traffic; (4) readiness becomes `200`, which is what the container health check uses. Any deviation (revision `behind`/`ahead`/`unknown`, tables missing, database unreachable) refuses startup with an actionable message and a `startup.schema_rejected` critical log line. The application never migrates itself, so an operator can always tell whether a schema change was intentional.

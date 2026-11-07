@@ -105,8 +105,15 @@ class SyntheticAdapter:
         # counted; consumers must resume from durable storage, not from this queue.
         self._updates: dict[str, deque[Update]] = defaultdict(deque)
         self._update_drops: dict[str, int] = defaultdict(int)
+        self._closed = False
 
     async def close(self) -> None:
+        """Idempotent shutdown: the adapter refuses service afterwards.
+
+        Matches the boundary adapter contract, so a caller cannot keep using a
+        closed adapter by accident (for example after a failed restart).
+        """
+        self._closed = True
         if self._store:
             self._store.close()
 
@@ -143,13 +150,15 @@ class SyntheticAdapter:
         return count
 
     async def configure_media_retention(self, days: int | None) -> None:
-        if days is not None and days < 1:
+        if days is not None and (type(days) is not int or days < 1):
             raise ValueError("invalid media retention")
         async with self._lock:
             self._media_retention_days = days
 
     async def prune_media(self, account_id: str) -> int:
         async with self._lock:
+            if self._closed:
+                raise SessionUnavailable(intervention_required=True)
             account = copy.deepcopy(self._account(account_id))
             count = self._expire_media(account)
             if count:
@@ -217,8 +226,12 @@ class SyntheticAdapter:
 
     async def drain_updates(self, account_id: str, limit: int = 100) -> list[Update]:
         if type(limit) is not int or not 1 <= limit <= 1000:
-            raise ValueError("invalid update drain limit")
+            # Normalized like every other adapter rejection: callers map
+            # AdapterError to a typed API/MCP error, ValueError would be a 500.
+            raise AdapterError("unsupported_operation")
         async with self._lock:
+            if self._closed:
+                raise SessionUnavailable(intervention_required=True)
             self._check(account_id, "drain_updates")
             buffer = self._updates[account_id]
             return [buffer.popleft() for _ in range(min(limit, len(buffer)))]
@@ -236,11 +249,15 @@ class SyntheticAdapter:
 
     async def status(self, account_id: str) -> SessionStatus:
         async with self._lock:
+            if self._closed:
+                raise SessionUnavailable(intervention_required=True)
             state = self._account(account_id).state
             return SessionStatus(state, state == "reauth_required")
 
     async def reconnect(self, account_id: str) -> SessionStatus:
         async with self._lock:
+            if self._closed:
+                raise SessionUnavailable(intervention_required=True)
             account = copy.deepcopy(self._account(account_id))
             if account.state == "reauth_required":
                 raise SessionUnavailable(True)
@@ -249,6 +266,8 @@ class SyntheticAdapter:
             return SessionStatus("ready")
 
     def _check(self, account_id: str, operation: str) -> _Account:
+        if self._closed:
+            raise SessionUnavailable(intervention_required=True)
         account = self._account(account_id)
         if account.state != "ready":
             raise SessionUnavailable(account.state == "reauth_required")

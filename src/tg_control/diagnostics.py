@@ -57,6 +57,7 @@ class Diagnostics:
         plugins=None,
         monitor_progress=None,
         scheduler_task: Callable[[], Any] | None = None,
+        retention_runner=None,
     ):
         self.sessions = sessions
         self.engine = engine
@@ -65,6 +66,7 @@ class Diagnostics:
         self.plugins = plugins
         self.monitor_progress = monitor_progress
         self.scheduler_task = scheduler_task
+        self.retention_runner = retention_runner
 
     async def collect(self, *, now: datetime | None = None) -> dict[str, Any]:
         now = now or datetime.now(timezone.utc)
@@ -365,6 +367,11 @@ class Diagnostics:
                     section["oldest_audit_age_seconds"] = age
         except SQLAlchemyError:
             section["audit_events"] = None
+        if self.retention_runner is not None:
+            try:
+                section["auto_prune"] = self.retention_runner.snapshot()
+            except Exception:
+                section["auto_prune"] = {"state": "unknown"}
         try:
             section["storage"] = self.gateway.storage_status()
         except Exception:

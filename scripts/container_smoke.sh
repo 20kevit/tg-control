@@ -52,6 +52,9 @@ fi
 TOKEN="$(cat secrets/owner_token)"
 [ -n "$TOKEN" ] || fail "owner token file is empty"
 
+log "read-only deployment preflight"
+docker compose run --rm --no-deps --entrypoint python gateway -m tg_control.preflight
+
 log "migrate explicitly (one-shot service)"
 docker compose run --rm migrate
 

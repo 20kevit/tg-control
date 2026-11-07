@@ -51,3 +51,23 @@ Accepted. Plugins are first-party, code-reviewed modules. Installing a plugin ne
 ## ADR-013: Offline-only TDLib boundary with an authorization/update harness
 
 Accepted. The native boundary is a contract plus an offline harness, not a live adapter. `OfflineTdlibAdapter` accepts only `TdlibMode.OFFLINE`; constructing `LIVE` raises `ComplianceBlocked` with no environment variable, configuration flag or developer override that changes the outcome. Transport is an injected `TdjsonTransport` protocol whose shipped implementation is an in-memory fake, so the module imports no native library, socket or HTTP client. The authorization state machine accepts only the transitions in `ALLOWED_TRANSITIONS`; credential-bearing states (phone number, code, password, email, registration, premium) are recognized only to force `reauth_required`, and no method exists to submit any credential. Reaching `ready` requires `synthetic_authorize()` with a `synthetic:` fixture marker. Updates are normalized through the fail-closed read model (`classify_chat`, `passes_text_safety_screen`), deduplicated by upstream id, sequence-numbered, bounded, and dropped when the chat is unregistered or unsafe. Mutations are unreachable in the boundary: only `history` and `get_message` reads exist, and protected/auto-deleting chats and non-text content are refused. Evidence is synthetic: no real account, parameter, login or network access.
+
+## ADR-014: Remote MCP stays bearer-only until an identity model is approved
+
+Status: accepted constraint (not a design for OAuth). Remote MCP over Streamable HTTP authenticates each request with a provisioned per-client bearer credential; every request, including `initialize` and tool discovery, requires a currently valid credential, and unauthorized requests receive `401` with `WWW-Authenticate: Bearer`.
+
+OAuth 2.1 authorization-server discovery, dynamic client registration and ChatGPT remote-connector interoperability are deliberately **not** implemented. They are not a transport detail: they require an owner decision about who issues identities, how consent is recorded, how tokens are audience-bound to the MCP resource, and how revocation interacts with the existing client/credential store. Implementing a second credential plane without that decision would either duplicate or bypass the policy model that every interface shares.
+
+The current protocol surface is pinned by tests so the limitation cannot silently drift into a misleading claim: `tests/test_mcp.py` asserts the `401`/`WWW-Authenticate` behaviour, that no OAuth authorization-server or protected-resource metadata endpoint is served (`/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource` are `404`), and that the docs describe bearer-only usage. Adding OAuth requires: an ADR superseding this one, audience-bound tokens validated per request, removal of the discovery assertions, updated `MCP.md`/`SECURITY.md`/`API.md`, and end-to-end verification against a real remote client — none of which can be claimed from local tests alone.
+
+## ADR-015: No client-facing media byte streaming until a route contract exists
+
+Status: accepted constraint. The media contract (`COMMANDS_MEDIA_AI_PLUGINS.md` §2.1–2.2) asks for streaming transfer and leaves client-facing streaming, resumability and checksum deduplication as open items. The implemented pipeline already streams internally: content is staged from an async chunk iterator with a bounded per-chunk size, per-account quotas, signature/type/size/SHA-256 validation, cancellation that leaves no partial files, TTL cleanup and a reauthorization guard, and staged bytes are readable back as chunks.
+
+What is deliberately absent is an HTTP surface that returns media bytes or accepts resumable chunk offsets from an external client. Adding one is not a local refactor:
+
+- it introduces a new exfiltration surface (large binary egress) that must carry the same per-chat Read recheck, revocation semantics and throttling as JSON reads;
+- it requires an accepted contract for byte-range/offset semantics, ETags, resume tokens, deduplication identity and quota accounting — none of which exist in `API.md` today, and inventing them silently would create an unreviewed public interface;
+- it must be mirrored in the contract registry, MCP and CLI surfaces to keep interface parity meaningful.
+
+Decision: media bytes continue to be delivered inside authorized JSON reads (`get_media`, bounded by the documented 1 MiB synthetic limit), and the missing client-facing route is recorded as a gap rather than improvised. Synthetic coverage today: `tests/test_media.py` including a multi-chunk streaming transfer with digest verification and a size-mismatch rejection.

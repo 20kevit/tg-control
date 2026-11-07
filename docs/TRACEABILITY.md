@@ -11,15 +11,15 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 | Legal / privacy gate | COMPLIANCE.md, PRD.md | `docs/COMPLIANCE.md`, `docs/PRD.md`, `docs/SECURITY.md` | `tests/test_operational_config.py` | 4 | Blocked |
 | TDLib / accounts (offline boundary) | TDLIB_OFFLINE.md | `src/tg_control/adapters/tdlib_boundary.py`, `src/tg_control/adapters/tdlib_poc.py`, `src/tg_control/adapters/tdlib_read_model.py`, `src/tg_control/adapters/tdlib_outcomes.py` | `tests/test_tdlib_boundary.py`, `tests/test_adapter.py`, `tests/test_tdlib_read_model.py`, `tests/test_tdlib_outcomes.py`, `tests/test_native_tdlib.py` | 28 | Locally tested |
 | Clients and policy | SECURITY.md, POLICY.md | `src/tg_control/auth.py`, `src/tg_control/policy.py`, `src/tg_control/core.py` | `tests/test_policy_auth.py`, `tests/test_core.py` | 27 | Locally tested |
-| Read / search / history / media | API.md | `src/tg_control/core.py`, `src/tg_control/adapters/synthetic.py`, `src/tg_control/media.py` | `tests/test_core.py`, `tests/test_media.py`, `tests/test_retention.py` | 36 | Locally tested |
+| Read / search / history / media | API.md | `src/tg_control/core.py`, `src/tg_control/adapters/synthetic.py`, `src/tg_control/media.py` | `tests/test_core.py`, `tests/test_media.py`, `tests/test_retention.py` | 37 | Locally tested |
 | Write / admin / batch | API.md | `src/tg_control/core.py`, `src/tg_control/schemas.py` | `tests/test_adapter.py`, `tests/test_core.py` | 27 | Locally tested |
-| Commands and media pipeline | COMMANDS_MEDIA_AI_PLUGINS.md | `src/tg_control/commands.py`, `src/tg_control/media.py` | `tests/test_commands.py`, `tests/test_commands_api.py`, `tests/test_media.py` | 24 | Locally tested |
+| Commands and media pipeline | COMMANDS_MEDIA_AI_PLUGINS.md | `src/tg_control/commands.py`, `src/tg_control/media.py` | `tests/test_commands.py`, `tests/test_commands_api.py`, `tests/test_media.py` | 25 | Locally tested |
 | Events | EVENTS_JOBS_WORKFLOWS.md | `src/tg_control/events.py` | `tests/test_events.py`, `tests/test_events_jobs_api.py` | 23 | Locally tested |
 | Durable jobs | EVENTS_JOBS_WORKFLOWS.md | `src/tg_control/jobs.py`, `src/tg_control/job_kinds.py` | `tests/test_jobs.py`, `tests/test_events_jobs_api.py` | 35 | Locally tested |
 | Workflows | EVENTS_JOBS_WORKFLOWS.md | `src/tg_control/workflows.py` | `tests/test_workflows.py`, `tests/test_workflows_api.py` | 16 | Locally tested |
 | AI task contract | COMMANDS_MEDIA_AI_PLUGINS.md | `src/tg_control/ai.py` | `tests/test_ai.py`, `tests/test_ai_api.py` | 12 | Locally tested |
 | Plugins | COMMANDS_MEDIA_AI_PLUGINS.md | `src/tg_control/plugins.py` | `tests/test_plugins.py`, `tests/test_plugins_api.py` | 11 | Locally tested |
-| Interfaces (HTTP/CLI/MCP/panel) | API.md, MCP.md, CLI.md | `src/tg_control/api.py`, `src/tg_control/cli.py`, `src/tg_control/mcp_server.py`, `src/tg_control/mcp_stdio.py`, `src/tg_control/static` | `tests/test_api.py`, `tests/test_cli.py`, `tests/test_mcp.py`, `tests/test_stdio_process.py`, `tests/test_browser.py` | 28 | Locally tested |
+| Interfaces (HTTP/CLI/MCP/panel) | API.md, MCP.md, CLI.md | `src/tg_control/api.py`, `src/tg_control/cli.py`, `src/tg_control/mcp_server.py`, `src/tg_control/mcp_stdio.py`, `src/tg_control/static` | `tests/test_api.py`, `tests/test_cli.py`, `tests/test_mcp.py`, `tests/test_stdio_process.py`, `tests/test_browser.py` | 29 | Locally tested |
 | Audit / retention / instance guard | SECURITY.md, OPERATIONS.md | `src/tg_control/audit.py`, `src/tg_control/cache.py`, `src/tg_control/instance_guard.py`, `src/tg_control/security.py`, `src/tg_control/request_audit.py` | `tests/test_retention.py`, `tests/test_retention_pruning.py`, `tests/test_api.py`, `tests/test_operational_config.py` | 30 | Locally tested |
 | Backup / recovery | BACKUP_RESTORE.md, OPERATIONS.md | `src/tg_control/backup.py`, `src/tg_control/backup_probe.py` | `tests/test_backup.py`, `tests/test_backup_catalogs.py`, `tests/test_disaster_recovery.py` | 14 | Locally tested |
 | Interface contracts (parity matrix) | CONTRACT_INDEX.md | `src/tg_control/contracts.py`, `docs/contracts/interfaces.json`, `scripts/gen_contracts.py` | `tests/test_contracts.py` | 11 | Locally tested |
@@ -30,6 +30,10 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 | Migrations / data model | DATA_MODEL.md | `src/tg_control/db.py`, `alembic/versions` | `tests/test_migrations.py`, `tests/test_postgres_api.py` | 10 | Locally tested |
 | Packaging / deployment config | DEPLOYMENT.md, RELEASE_PROCESS.md | `Dockerfile`, `.dockerignore`, `compose.yaml`, `.env.example`, `pyproject.toml`, `requirements.lock` | `tests/test_operational_config.py`, `tests/test_deployment.py` | 14 | Locally tested |
 | Deployment lifecycle (host process) | DEPLOYMENT.md | `scripts/runtime_smoke.py`, `src/tg_control/config.py`, `src/tg_control/healthcheck.py`, `docs/DEPLOYMENT.md` | `tests/test_runtime_lifecycle.py` | 1 | Locally tested |
+| Deployment preflight | DEPLOYMENT.md | `src/tg_control/preflight.py`, `src/tg_control/config.py`, `src/tg_control/db.py` | `tests/test_preflight.py` | 7 | Locally tested |
+| Adapter conformance | PRD.md, SECURITY.md | `src/tg_control/adapters/base.py`, `src/tg_control/adapters/synthetic.py`, `src/tg_control/adapters/tdlib_boundary.py` | `tests/test_adapter_conformance.py`, `tests/test_adapter.py` | 15 | Locally tested |
+| Scheduled retention | OPERATIONS.md, API.md | `src/tg_control/retention.py`, `src/tg_control/api.py` | `tests/test_retention_scheduling.py`, `tests/test_retention_pruning.py` | 9 | Locally tested |
+| Dependency audit and coverage | TESTING.md, RELEASE_PROCESS.md | `scripts/ci.sh`, `requirements.lock`, `pyproject.toml` | `tests/test_deployment.py` | 10 | Locally tested |
 | Release metadata and provenance | RELEASE_PROCESS.md | `src/tg_control/version.py`, `scripts/build_release.py`, `docs/RELEASE_PROCESS.md` | `tests/test_deployment.py` | 10 | Locally tested |
 | Hosted CI pipeline | RELEASE_PROCESS.md | `.github/workflows/ci.yaml`, `scripts/ci.sh`, `scripts/container_smoke.sh` | `tests/test_deployment.py` | 10 | Not tested |
 | Owner notification / monitoring | OPERATIONS.md | `src/tg_control/monitoring.py` | `tests/test_session_monitor.py`, `tests/test_monitor_progress.py`, `tests/test_api.py` | 28 | Locally tested |
@@ -55,6 +59,18 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 - `tests/test_adapter.py::test_offline_tdjson_correlates_clients_and_updates`
 - `tests/test_adapter.py::test_tdlib_paths_are_isolated_and_reject_traversal`
 - `tests/test_adapter.py::test_invalid_retry_duration_is_rejected`
+
+### `tests/test_adapter_conformance.py`
+
+- `tests/test_adapter_conformance.py::test_adapter_exposes_the_protocol_surface`
+- `tests/test_adapter_conformance.py::test_reads_are_account_scoped_and_unknown_chats_are_typed`
+- `tests/test_adapter_conformance.py::test_unknown_operations_are_normalized_and_read_only_adapters_refuse_writes`
+- `tests/test_adapter_conformance.py::test_media_retention_arguments_are_validated`
+- `tests/test_adapter_conformance.py::test_update_draining_is_bounded_and_normalized`
+- `tests/test_adapter_conformance.py::test_unready_sessions_are_explicit_and_fail_closed`
+- `tests/test_adapter_conformance.py::test_close_is_idempotent_and_refuses_further_service`
+- `tests/test_adapter_conformance.py::test_saved_messages_capability_is_declared_not_faked`
+- `tests/test_adapter_conformance.py::test_errors_never_carry_upstream_text`
 
 ### `tests/test_adapter_error_boundary.py`
 
@@ -280,6 +296,7 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 - `tests/test_mcp.py::test_mcp_partial_batch_is_error_but_reports_all_outcomes`
 - `tests/test_mcp.py::test_mcp_does_not_claim_success_for_malformed_batch_results`
 - `tests/test_mcp.py::test_stdio_mcp_does_not_ignore_http_failure_status`
+- `tests/test_mcp.py::test_mcp_is_bearer_only_and_advertises_no_oauth_metadata`
 
 ### `tests/test_media.py`
 
@@ -290,6 +307,7 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 - `tests/test_media.py::test_streaming_cancellation_leaves_no_partial_files`
 - `tests/test_media.py::test_guard_failure_aborts_staging_and_cleanup_expires_files`
 - `tests/test_media.py::test_root_must_be_private_and_not_a_symlink`
+- `tests/test_media.py::test_multi_chunk_streaming_keeps_memory_bounded_and_verifies_digest`
 
 ### `tests/test_migrations.py`
 
@@ -379,6 +397,16 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 - `tests/test_postgres_api.py::test_postgres_single_gateway_guard_and_loss_are_fail_closed`
 - `tests/test_postgres_api.py::test_guard_sanitizes_driver_and_cleanup_failures`
 
+### `tests/test_preflight.py`
+
+- `tests/test_preflight.py::test_preflight_passes_on_a_valid_private_deployment`
+- `tests/test_preflight.py::test_missing_configuration_fails_with_variable_names_only`
+- `tests/test_preflight.py::test_group_readable_secret_file_fails_closed`
+- `tests/test_preflight.py::test_insecure_state_directory_is_a_storage_failure`
+- `tests/test_preflight.py::test_unreachable_database_and_stale_schema_are_database_failures`
+- `tests/test_preflight.py::test_disk_headroom_check_and_duplicate_backup_key_warning`
+- `tests/test_preflight.py::test_configuration_failure_takes_precedence_over_storage`
+
 ### `tests/test_property_boundaries.py`
 
 - `tests/test_property_boundaries.py::test_error_codes_are_always_safe_tokens`
@@ -404,6 +432,15 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 - `tests/test_retention_pruning.py::test_job_pruning_is_bounded_dry_run_first_and_audited`
 - `tests/test_retention_pruning.py::test_workflow_run_pruning_never_touches_unfinished_runs`
 - `tests/test_retention_pruning.py::test_pruning_requires_owner_and_bounded_request`
+
+### `tests/test_retention_scheduling.py`
+
+- `tests/test_retention_scheduling.py::test_policy_defaults_are_disabled_and_bounded`
+- `tests/test_retention_scheduling.py::test_disabled_policy_never_runs_and_never_prunes`
+- `tests/test_retention_scheduling.py::test_runs_once_per_interval_and_only_while_the_guard_is_held`
+- `tests/test_retention_scheduling.py::test_a_failing_step_does_not_block_the_others_and_is_audited`
+- `tests/test_retention_scheduling.py::test_api_auto_prune_deletes_only_eligible_rows_and_audits`
+- `tests/test_retention_scheduling.py::test_owner_enables_auto_prune_and_diagnostics_report_it`
 
 ### `tests/test_runtime_lifecycle.py`
 

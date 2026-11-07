@@ -118,6 +118,9 @@ refuses to open a synthetic state directory with looser permissions (asserted by
 ## 5. Start, verify, stop
 
 ```bash
+# 0. read-only preflight: configuration, file privacy, disk, database, schema
+docker compose run --rm --no-deps --entrypoint python gateway -m tg_control.preflight
+
 # 1. migrations are an explicit one-shot step
 docker compose run --rm migrate
 
@@ -163,6 +166,33 @@ shutdown, so the process status is `-SIGTERM`; the decisive evidence is the
 `Application shutdown complete` log line together with `forced_kill = false` in
 the lifecycle harness. Compose allows 45 s, longer than the 30 s in-process
 window, and Docker sends SIGKILL only after that.
+
+## 5a. Deployment preflight
+
+`tg-control-preflight` (module `tg_control.preflight`) is a read-only check an
+operator can run on the host or inside the image before starting the gateway. It
+never binds a port, migrates, writes application state or prints a secret value.
+
+| Check | Failure code | Detail vocabulary |
+|---|---|---|
+| required variables present and settings valid | exit 1 | `missing required configuration: <vars>`, validation message |
+| secret files are private regular files | exit 1 | `missing`, `unreadable`, `not_a_regular_file`, `group_or_world_accessible`, `empty` |
+| optional backup key parses and differs from the encryption key | exit 1 config / warn | `invalid Fernet key`, `backup key must differ from the encryption key` |
+| state directories exist, are private, writable, with headroom | exit 2 | `not_a_directory`, `not_writable_by_current_user`, `less than N MiB free` |
+| database reachable | exit 3 | `connection failed` |
+| schema current with all tables | exit 3 | `missing`, `behind`, `ahead`, `unknown`, `incomplete` |
+
+```bash
+python -m tg_control.preflight            # human-readable lines
+python -m tg_control.preflight --json     # machine-readable report
+python -m tg_control.preflight --min-free-mb 4096
+```
+
+Exit codes are the startup contract (1 config, 2 filesystem, 3 database/schema,
+4 unexpected). Executed evidence: `tests/test_preflight.py` (7 tests) covers the
+passing case, missing configuration, group-readable secret files, insecure state
+directory, unreachable database, stale schema, disk headroom and duplicate backup
+key warning.
 
 ## 6. Migration policy (`require_current`)
 
@@ -222,11 +252,13 @@ executed, no leaks). `scripts/container_smoke.sh` performs the same scan over
 
 | Check | Status |
 |---|---|
-| Dockerfile/Compose static assertions | **Executed locally** (`tests/test_deployment.py`, 9 tests) |
+| Dockerfile/Compose static assertions | **Executed locally** (`tests/test_deployment.py`, 10 tests) |
+| Deployment preflight (config, permissions, disk, database, schema) | **Executed locally** (`tests/test_preflight.py`, 7 tests) |
 | Compose YAML parse + security posture | **Executed locally** (`tests/test_operational_config.py`) |
 | Host-process lifecycle, health, graceful stop, restart persistence, database-outage fail-closed, failure modes | **Executed locally** (`tests/test_runtime_lifecycle.py` → `scripts/runtime_smoke.py`, 11 scenarios) |
 | Image build, `docker compose config`, container start/recreate, in-container non-root check, log scan | **Blocked** — no container runtime in the development sandbox (`CapEff: 0`, no socket) |
 | Hosted CI execution of the workflow | **Not executed** — `.github/workflows/ci.yaml` exists and is statically checked, but no run has happened on GitHub |
+| Dependency vulnerability audit of the lockfile | **Executed locally** (`pip-audit -r requirements.lock --strict` → no known vulnerabilities); not yet run by hosted CI |
 | Image/OS vulnerability scan, digest pinning | **Blocked / requires owner action** (network + registry approval) |
 | Graceful shutdown under sustained load, concurrent startup/migration, long-running soak | **Not tested** — the shutdown path is verified with idle/short requests only |
 | Any deployment to a real host | **Not performed and not authorized** |

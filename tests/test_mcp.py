@@ -325,3 +325,29 @@ async def test_stdio_mcp_does_not_ignore_http_failure_status():
                 "error": "gateway_http_error",
                 "outcome_unknown": True,
             }
+
+
+def test_mcp_is_bearer_only_and_advertises_no_oauth_metadata(api):
+    """ADR-014: remote MCP is bearer-only until an identity model is approved.
+
+    The test pins both halves of the documented limitation: unauthorized access
+    gets a standards-shaped 401 challenge, and no OAuth discovery document is
+    served that could make a client believe dynamic registration exists.
+    """
+    unauthorized = api.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        headers={"Accept": "application/json, text/event-stream"},
+    )
+    assert unauthorized.status_code == 401
+    assert unauthorized.headers.get("www-authenticate") == "Bearer"
+    assert "authorization_server" not in unauthorized.text
+    assert "oauth" not in unauthorized.text.lower()
+
+    for path in (
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+    ):
+        response = api.get(path)
+        assert response.status_code == 404, path

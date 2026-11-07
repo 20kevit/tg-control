@@ -165,3 +165,49 @@ def test_root_must_be_private_and_not_a_symlink(tmp_path):
     directory.symlink_to(tmp_path)
     with pytest.raises(MediaError):
         service.account_usage("00000000-0000-0000-0000-000000000000")
+
+
+async def test_multi_chunk_streaming_keeps_memory_bounded_and_verifies_digest(tmp_path):
+    """A large synthetic transfer arrives in bounded chunks, not one buffer.
+
+    The pipeline must accept an async iterator of arbitrary chunking, enforce the
+    declared size, verify the digest and expose the staged bytes back as chunks
+    without holding the whole file in one contiguous buffer.
+    """
+    import hashlib
+
+    service = pipeline(tmp_path)
+    account = str(uuid.uuid4())
+    payload = b"synthetic-stream-" * 4096  # ~64 KiB
+    digest = hashlib.sha256(payload).hexdigest()
+    observed_chunks = []
+
+    async def source():
+        for offset in range(0, len(payload), 4096):
+            chunk = payload[offset : offset + 4096]
+            observed_chunks.append(len(chunk))
+            yield chunk
+
+    staged = await service.stage_stream(
+        account,
+        "stream.txt",
+        "text/plain",
+        source(),
+        declared_size=len(payload),
+        expected_sha256=digest,
+    )
+    assert len(observed_chunks) == -(-len(payload) // 4096) > 1
+    assert staged.size == len(payload)
+    assert staged.sha256 == digest
+    returned = b"".join([chunk async for chunk in staged.chunks(chunk_size=8192)])
+    assert returned == payload
+
+    # A declared size that disagrees with the stream is rejected, not truncated.
+    async def short():
+        yield b"synthetic"
+
+    with pytest.raises(MediaError) as mismatch:
+        await service.stage_stream(
+            account, "short.txt", "text/plain", short(), declared_size=64
+        )
+    assert mismatch.value.code == "size_mismatch"

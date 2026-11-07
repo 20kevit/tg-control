@@ -53,6 +53,12 @@ echo "== release provenance (dry run) =="
 "$PYTHON" scripts/build_release.py --dry-run >/dev/null
 
 echo "== test suite =="
-"$PYTHON" -m pytest -q
+if [ "${TG_COVERAGE:-0}" = "1" ]; then
+  # Coverage gate: the measured floor is well above 80%; raise it deliberately
+  # only together with new tests, never by weakening assertions.
+  "$PYTHON" -m pytest -q --cov=tg_control --cov-fail-under=80
+else
+  "$PYTHON" -m pytest -q
+fi
 
 echo "== done: all gates passed =="

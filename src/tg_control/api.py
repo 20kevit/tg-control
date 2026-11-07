@@ -85,6 +85,7 @@ from .plugins import (
 )
 from .policy import ChatId, GrantInput
 from .request_audit import BoundaryAudit, RequestAudit, request_id_context
+from .retention import AutoPrunePolicy, RetentionRunner
 from .schemas import Batch
 from .security import SecurityBoundary
 from .throttle import AuthThrottle
@@ -135,6 +136,11 @@ class RetentionSettings(StrictModel):
     # A zero TTL disables the in-memory message cache.
     cache_ttl_seconds: Annotated[int, Field(strict=True, ge=0, le=31_536_000)] = 3600
     media_retention_days: Annotated[int, Field(strict=True, ge=1, le=36500)] | None = 30
+    # Automatic pruning is opt-in. When disabled (the default) pruning happens
+    # only through the owner-only endpoints, exactly as before.
+    auto_prune: Annotated[bool, Field(strict=True)] = False
+    auto_prune_interval_minutes: Annotated[int, Field(strict=True, ge=60, le=10_080)] = 1440
+    history_retention_days: Annotated[int, Field(strict=True, ge=1, le=36500)] = 90
 
 
 class EventPullRequest(StrictModel):
@@ -204,6 +210,20 @@ def _bearer(request: Request) -> str:
     return parts[1]
 
 
+def _auto_prune_policy(sessions) -> AutoPrunePolicy:
+    """Read the stored retention settings; validation happens in AutoPrunePolicy."""
+    with sessions() as session:
+        stored = session.get(Setting, "retention")
+        retention = RetentionSettings.model_validate(stored.value if stored else {})
+    return AutoPrunePolicy(
+        enabled=retention.auto_prune,
+        interval_minutes=retention.auto_prune_interval_minutes,
+        audit_retention_days=retention.audit_retention_days,
+        event_retention_days=retention.event_retention_days,
+        history_retention_days=retention.history_retention_days,
+    )
+
+
 def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> FastAPI:
     configure_logging(getattr(settings, "log_level", "INFO"))
     engine = make_engine(settings.database_url)
@@ -240,6 +260,15 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
         sessions, gateway, step_timeout_seconds=settings.operation_timeout_seconds
     )
     instance_guard = InstanceGuard(engine)
+    retention_runner = RetentionRunner(
+        sessions=sessions,
+        audit_module=audit,
+        jobs=jobs,
+        workflows=workflows,
+        events=events,
+        load_policy=lambda: _auto_prune_policy(sessions),
+        guard=instance_guard.check,
+    )
     fernet = Fernet(settings.encryption_key)
     monitor_progress = SessionMonitorProgress()
     cursor_key = derive_key(settings.encryption_key)
@@ -251,6 +280,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
         instance_guard=instance_guard,
         plugins=plugins,
         monitor_progress=monitor_progress,
+        retention_runner=retention_runner,
     )
     mcp = create_mcp_server(
         RemoteBackend(
@@ -331,6 +361,14 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                         logging.getLogger("tg_control.maintenance").error(
                             "cache maintenance failed"
                         )
+                    try:
+                        await retention_runner.run_if_due()
+                    except Exception:
+                        # Never log payloads or identifiers; diagnostics reports
+                        # the last outcome.
+                        logging.getLogger("tg_control.maintenance").error(
+                            "retention maintenance failed"
+                        )
                     ticks += 1
                     if ticks % 60 == 0:
                         try:
@@ -396,6 +434,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                 asyncio.create_task(run_scheduler()),
             ]
             app.state.maintenance = tasks[0]
+            app.state.retention = retention_runner
             app.state.session_monitor_task = tasks[1]
             app.state.event_ingest = tasks[2]
             app.state.scheduler = tasks[3]

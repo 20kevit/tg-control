@@ -149,3 +149,59 @@ from `api.py`.
 All of the above run inside `scripts/ci.sh` and therefore inside the hosted CI
 workflow. The container job (`scripts/container_smoke.sh`) cannot run in this
 sandbox and is marked blocked in `STATUS.md`.
+
+## Adapter conformance
+
+`tests/test_adapter_conformance.py` runs one behavioural contract against both
+adapter implementations (9 tests × 2 profiles = 18 cases): protocol surface,
+account-scoped reads, typed `None` for unknown chats and `not_found` from
+`execute`, normalized error codes that never carry upstream text or identifiers,
+explicit session state with a boolean intervention flag, `ValueError` for
+programmer errors versus `AdapterError` for operational rejection, bounded update
+draining, declared (not faked) Saved Messages capability, idempotent `close()`
+that refuses further service, and per-account state isolation. Two defects found
+by writing it were fixed: the synthetic adapter kept serving after `close()` and
+raised `ValueError` instead of a normalized error for an out-of-range drain limit
+(both would have produced inconsistent behaviour, and a `500` instead of a typed
+error, for any future adapter consumer). A future native adapter is validated by
+adding a profile.
+
+## Automatic retention pruning
+
+`tests/test_retention_scheduling.py` (6 tests) pins the opt-in schedule: default
+disabled; policy bounds (interval 60–10080, retention 1–36500, strict types);
+never due while disabled or while the single-instance guard is lost; at most one
+run per interval with a fresh process waiting a full interval; a fully successful
+pass deletes only eligible rows (an old terminal job is removed, an equally old
+queued job is kept) and writes exactly one metadata-only audit row; a failing step
+does not stop the others and the pass is audited as a failure; diagnostics report
+`state`/`interval`/`last_run_age`/`last_run_outcome` without counts.
+
+## Deployment preflight
+
+`tests/test_preflight.py` (7 tests) executes the real `python -m
+tg_control.preflight` subprocess: a valid private deployment passes and prints no
+secret value or resolved path; missing configuration exits 1 naming only the
+variables; a group-readable secret file exits 1 with the fixed detail
+`group_or_world_accessible`; an insecure state directory exits 2; an unreachable
+database and a downgraded schema exit 3; disk headroom is enforced; a backup key
+equal to the encryption key is a warning, not a pass; configuration failures take
+precedence over storage failures.
+
+## Coverage and dependency audit
+
+```bash
+# coverage gate (>= 80% of src/tg_control; measured floor is ~86%)
+TG_COVERAGE=1 PYTHON=/home/user/venv/bin/python bash scripts/ci.sh
+
+# dependency vulnerability audit of the hash-locked runtime surface
+pip-audit -r requirements.lock --strict
+```
+
+`scripts/ci.sh` runs the coverage gate only when `TG_COVERAGE=1` so the default
+local gate stays offline and deterministic; the hosted workflow sets it. Coverage
+is measured for in-process code only: `preflight` and the other subprocess entry
+points are covered by their own tests but appear as unmeasured lines, so the
+reported total is a lower bound. `pip-audit` needs network access to PyPI; the
+hosted workflow runs it against `requirements.lock` and fails on a known
+vulnerability.
