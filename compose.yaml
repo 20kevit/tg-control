@@ -1,0 +1,61 @@
+# Local synthetic development only; never publish the application or database remotely.
+services:
+  db:
+    image: postgres:17.9-bookworm
+    user: "${TG_UID:-1000}:${TG_GID:-1000}"
+    environment:
+      POSTGRES_USER: tgcontrol
+      POSTGRES_DB: tgcontrol
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    secrets:
+      - postgres_password
+    volumes:
+      - ./state/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tgcontrol -d tgcontrol -h 127.0.0.1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  gateway:
+    build: .
+    user: "${TG_UID:-1000}:${TG_GID:-1000}"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TG_DATABASE_URL_FILE: /run/secrets/database_url
+      TG_OWNER_TOKEN_FILE: /run/secrets/owner_token
+      TG_ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+      TG_SYNTHETIC_STATE_DIR: /var/lib/tg-control/synthetic
+      TG_ALLOWED_HOSTS: localhost,127.0.0.1
+      TG_ALLOWED_ORIGINS: http://localhost:8000,http://127.0.0.1:8000
+    secrets:
+      - database_url
+      - owner_token
+      - encryption_key
+    volumes:
+      - ./state/synthetic:/var/lib/tg-control/synthetic
+    ports:
+      - "127.0.0.1:8000:8000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    init: true
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  database_url:
+    file: ./secrets/database_url
+  owner_token:
+    file: ./secrets/owner_token
+  encryption_key:
+    file: ./secrets/encryption_key

@@ -1,0 +1,9 @@
+{
+  "name": "tg-control-ui-tests",
+  "private": true,
+  "scripts": { "check": "node --check src/tg_control/static/app.js" },
+  "devDependencies": {
+    "@sparticuz/chromium": "153.0.0",
+    "playwright-core": "1.65.0"
+  }
+}

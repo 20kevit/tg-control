@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>TG-Control · Gateway administration</title>
+  <link rel="stylesheet" href="/admin/style.css">
+  <script src="/admin/app.js" defer></script>
+</head>
+<body>
+  <div id="login" class="login-shell">
+    <div class="login-brand"><span class="brand-mark">T<span>G</span></span><span>TG<span class="brand-light"> / CONTROL</span></span></div>
+    <main class="login-card">
+      <div class="eyebrow"><span class="status-dot"></span> SYNTHETIC ENVIRONMENT</div>
+      <h1>Your gateway,<br><em>under control.</em></h1>
+      <p>Manage access, accounts, and activity from one private workspace.</p>
+      <div class="gate-note"><strong>Safety gate is active</strong><br>Use synthetic data only. Real Telegram accounts and content are not supported.</div>
+      <form id="login-form">
+        <label for="owner-token">Owner credential</label>
+        <input id="owner-token" type="password" autocomplete="off" required placeholder="Paste your owner credential">
+        <button class="button primary wide" type="submit">Unlock workspace <span>→</span></button>
+        <p class="hint">Kept in memory for this session only. Never stored in the browser.</p>
+      </form>
+      <p id="login-error" class="form-error" role="alert"></p>
+    </main>
+    <div class="login-footer">PRIVATE BY DESIGN <span>·</span> SYNTHETIC DATA ONLY</div>
+  </div>
+
+  <div id="app" class="app-shell" hidden>
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">T<span>G</span></span><span>TG<span class="brand-light"> / CONTROL</span></span></div>
+      <div class="workspace-label">WORKSPACE <span>01</span></div>
+      <nav aria-label="Main navigation">
+        <button class="nav-item active" data-view="overview"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span> Overview</button>
+        <button class="nav-item" data-view="accounts"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.4-4 2.8-6 7-6s6.6 2 7 6"/></svg></span> Accounts</button>
+        <button class="nav-item" data-view="clients"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 9h8M8 13h5"/></svg></span> Clients</button>
+        <button class="nav-item" data-view="policies"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-2.7 7.4-7 10-4.3-2.6-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></span> Access policies</button>
+        <div class="nav-divider"></div>
+        <button class="nav-item" data-view="retention"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></span> Retention</button>
+        <button class="nav-item" data-view="audit"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/><circle cx="3" cy="6" r=".5"/><circle cx="3" cy="12" r=".5"/><circle cx="3" cy="18" r=".5"/></svg></span> Audit trail</button>
+      </nav>
+      <div class="sidebar-bottom"><div class="mode-pill"><span class="status-dot"></span> Synthetic mode</div><button id="logout" class="logout">Sign out <span>↗</span></button></div>
+    </aside>
+    <div class="content-shell">
+      <header class="topbar"><div><span class="breadcrumb">WORKSPACE</span><span class="slash"> / </span><strong id="top-title">Overview</strong></div><div class="top-actions"><span class="private-label"><span class="status-dot"></span> PRIVATE GATEWAY</span><button id="refresh" class="icon-button" aria-label="Refresh data" title="Refresh data"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8a7.5 7.5 0 1 0 .5 6"/><path d="M19 4v4h-4"/></svg></button><div class="avatar" aria-label="Owner">O</div></div></header>
+      <main class="main-content">
+        <div class="gate-banner"><span class="gate-icon">!</span><div><strong>Compliance gate active.</strong> Synthetic data only. Real Telegram login and content are disabled.</div><a href="https://core.telegram.org/api/terms" target="_blank" rel="noopener noreferrer">Telegram terms ↗</a></div>
+        <div id="session-alert" class="session-alert" role="alert" hidden></div>
+        <div id="monitor-alert" class="session-alert" role="alert" hidden></div>
+        <div id="notice" class="notice" role="status" hidden></div>
+
+        <section id="view-overview" class="view active" aria-labelledby="overview-title">
+          <div class="page-heading"><div><div class="eyebrow muted">YOUR WORKSPACE <span> / 01</span></div><h1 id="overview-title">Gateway overview<span class="heading-period">.</span></h1><p>A clear view of your accounts, clients, and access.</p></div><span class="environment-label"><span class="status-dot"></span> SYSTEM ONLINE</span></div>
+          <div class="stats-grid">
+            <article class="stat-card"><div class="stat-top"><span>ACCOUNTS</span><span class="stat-icon blue"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.4-4 2.8-6 7-6s6.6 2 7 6"/></svg></span></div><strong id="stat-accounts">—</strong><p>Configured synthetic accounts</p><div class="stat-foot">Isolated by account <span>↗</span></div></article>
+            <article class="stat-card"><div class="stat-top"><span>CLIENTS</span><span class="stat-icon lilac"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 9h8M8 13h5"/></svg></span></div><strong id="stat-clients">—</strong><p>Independently managed clients</p><div class="stat-foot">Credentials are revocable <span>↗</span></div></article>
+            <article class="stat-card"><div class="stat-top"><span>ACCESS MODEL</span><span class="stat-icon green"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-2.7 7.4-7 10-4.3-2.6-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></span></div><strong class="stat-word">Scoped</strong><p>Read, write, and admin</p><div class="stat-foot">Independent permissions <span>↗</span></div></article>
+          </div>
+          <div class="overview-grid"><article class="panel"><div class="panel-heading"><div><span class="eyebrow muted">QUICK START</span><h2>Get connected</h2><p>A few steps to set up your synthetic workspace.</p></div><span class="panel-index">01 — 03</span></div><ol class="steps"><li><span>01</span><div><strong>Add an account</strong><p>Create an isolated synthetic account with a reserved test number.</p></div></li><li><span>02</span><div><strong>Create a client</strong><p>Issue a unique credential and store it safely; it appears only once.</p></div></li><li><span>03</span><div><strong>Set its access</strong><p>Grant only the scopes needed for each account and chat.</p></div></li></ol><button class="text-button" data-go="accounts">Manage accounts <span>→</span></button></article>
+          <article class="panel dark-panel"><span class="eyebrow pale">BUILT FOR TRUST</span><h2>Control is<br>the whole point.</h2><p>Permissions are enforced by the gateway, not the client. Private chats remain closed until explicitly allowed.</p><div class="dark-rule"></div><div class="security-facts"><span><b>01</b> Account isolation</span><span><b>02</b> Explicit exclusions</span><span><b>03</b> Auditable activity</span></div></article></div>
+          <div class="section-heading"><div><span class="eyebrow muted">SESSION MONITOR</span><h2>Recent session events</h2><p id="monitor-summary" class="monitor-summary"></p></div><button class="text-button" data-go="accounts">Review accounts <span>→</span></button></div><div id="session-events" class="panel compact" aria-live="polite"></div>
+          <div class="section-heading"><div><span class="eyebrow muted">AT A GLANCE</span><h2>Recent activity</h2></div><button class="text-button" data-go="audit">View audit trail <span>→</span></button></div><div id="recent-audit" class="panel compact"></div>
+        </section>
+
+        <section id="view-accounts" class="view" aria-labelledby="accounts-title">
+          <div class="page-heading"><div><div class="eyebrow muted">WORKSPACE <span> / ACCOUNTS</span></div><h1 id="accounts-title">Accounts<span class="heading-period">.</span></h1><p>Each synthetic account has an isolated workspace.</p></div></div>
+          <div class="split-grid"><article class="panel"><div class="panel-heading"><div><span class="eyebrow muted">DIRECTORY</span><h2>Account inventory</h2><p>Enable or disable access without deleting audit history.</p></div></div><div id="account-list"></div></article>
+          <article class="panel"><div class="panel-heading"><div><span class="eyebrow muted">NEW ACCOUNT</span><h2>Add an account</h2><p>Reserved fictional test numbers only.</p></div><span class="stat-icon blue">＋</span></div><form id="account-form" class="form-stack"><label for="account-alias">Account alias</label><input id="account-alias" maxlength="80" required placeholder="e.g. Research workspace"><label for="account-phone">Synthetic phone number</label><input id="account-phone" required placeholder="+12025550100" pattern="\+120255501[0-9]{2}"><p class="hint">Only +12025550100–+12025550199 are accepted.</p><button class="button primary" type="submit">Add synthetic account <span>→</span></button></form></article></div>
+        </section>
+
+        <section id="view-clients" class="view" aria-labelledby="clients-title">
+          <div class="page-heading"><div><div class="eyebrow muted">WORKSPACE <span> / CLIENTS</span></div><h1 id="clients-title">Clients<span class="heading-period">.</span></h1><p>One identity and revocable credential per client.</p></div></div>
+          <div id="credential-box" class="credential-box" hidden><div><strong>Credential issued — shown once</strong><p>Save it in a secure secret store now. It cannot be retrieved later.</p></div><textarea id="issued-credential" rows="2" readonly aria-label="New client credential"></textarea><button id="dismiss-credential" class="button secondary">I've saved it</button></div>
+          <div class="split-grid"><article class="panel"><div class="panel-heading"><div><span class="eyebrow muted">DIRECTORY</span><h2>Client identities</h2><p>Rotation immediately invalidates the previous credential.</p></div></div><div id="client-list"></div></article>
+          <article class="panel"><div class="panel-heading"><div><span class="eyebrow muted">NEW CLIENT</span><h2>Create a client</h2><p>New clients start with no account access.</p></div><span class="stat-icon lilac">＋</span></div><form id="client-form" class="form-stack"><label for="client-name">Client name</label><input id="client-name" maxlength="80" required placeholder="e.g. Local assistant"><button class="button primary" type="submit">Create client <span>→</span></button></form><div class="inline-note">Keep credentials out of prompts, logs, and the repository.</div></article></div>
+        </section>
+
+        <section id="view-policies" class="view" aria-labelledby="policies-title">
+          <div class="page-heading"><div><div class="eyebrow muted">WORKSPACE <span> / ACCESS</span></div><h1 id="policies-title">Access policies<span class="heading-period">.</span></h1><p>Grant independently. Exclusions always take precedence.</p></div></div>
+          <article class="panel"><div class="selectors"><div><label for="policy-client">Client</label><select id="policy-client"></select></div><div><label for="policy-account">Account</label><select id="policy-account"></select></div><button id="load-policy" class="button secondary" type="button">Load policy</button></div><div id="policy-state" class="hint policy-state">Choose a client and an account, then load the policy.</div></article>
+          <form id="policy-form" hidden><div class="scope-grid" id="scope-grid"></div><div class="policy-footer"><p>Private chats need an explicit chat ID. No permission implies another.</p><button class="button primary" type="submit">Save access policy <span>→</span></button></div></form>
+        </section>
+
+        <section id="view-retention" class="view" aria-labelledby="retention-title">
+          <div class="page-heading"><div><div class="eyebrow muted">WORKSPACE <span> / DATA</span></div><h1 id="retention-title">Retention<span class="heading-period">.</span></h1><p>Set expectations for local records and cached data.</p></div></div>
+          <div class="split-grid"><article class="panel"><div class="panel-heading"><div><span class="eyebrow muted">CONFIGURATION</span><h2>Retention settings</h2><p>Audit pruning runs only when explicitly requested.</p></div></div><form id="retention-form" class="form-stack"><label for="audit-days">Audit retention · days</label><input id="audit-days" type="number" min="1" max="36500" required><label for="cache-seconds">Message cache TTL · seconds</label><input id="cache-seconds" type="number" min="0" max="31536000" required><label for="media-days">Media retention · days</label><input id="media-days" type="number" min="1" max="36500" required><label class="check-row"><input id="media-permanent" type="checkbox"> Keep media without automatic expiry</label><p class="hint">Expired synthetic media is deleted at access, startup and periodic cleanup. A shorter duration may delete existing media immediately. Cache TTL 0 disables caching.</p><p id="storage-status" class="inline-note"></p><button class="button primary" type="submit">Save settings <span>→</span></button></form></article><article class="panel"><span class="eyebrow muted">MAINTENANCE</span><h2>Audit cleanup</h2><p>Delete audit records older than the configured interval. This action cannot be undone.</p><div class="inline-note">Back up your encrypted database before pruning. One-time mutation keys are not pruned.</div><button id="prune-audit" class="button secondary danger">Prune expired audit records</button></article></div>
+        </section>
+
+        <section id="view-audit" class="view" aria-labelledby="audit-title">
+          <div class="page-heading"><div><div class="eyebrow muted">WORKSPACE <span> / ACTIVITY</span></div><h1 id="audit-title">Audit trail<span class="heading-period">.</span></h1><p>Request metadata and outcomes, without message content or credentials.</p></div><button id="reload-audit" class="button secondary">Refresh activity ↻</button></div>
+          <article class="panel"><div class="panel-heading"><div><span class="eyebrow muted">LATEST EVENTS</span><h2>Activity log</h2><p>Showing the most recent 100 records.</p></div></div><div id="audit-list"></div></article>
+        </section>
+      </main>
+      <footer class="footer"><span>TG-CONTROL <span> / </span> PRIVATE WORKSPACE</span><span>SYNTHETIC MODE <span>·</span> v0.1</span></footer>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,137 @@
+"""Run actual migrations against SQLite and an isolated local PostgreSQL socket."""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pgserver
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import inspect, select
+
+from tg_control.db import make_engine
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def migration(url, command, revision):
+    env = os.environ.copy()
+    env["TG_DATABASE_URL"] = url
+    env.pop("TG_DATABASE_URL_FILE", None)
+    subprocess.run(
+        [sys.executable, "-m", "alembic", command, revision],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def upgrade(url, revision):
+    migration(url, "upgrade", revision)
+
+
+def migrate(url):
+    upgrade(url, "head")
+    engine = make_engine(url)
+    assert {
+        "accounts",
+        "clients",
+        "credentials",
+        "grants",
+        "settings",
+        "execution_keys",
+        "audit_events",
+        "alembic_version",
+    } <= set(inspect(engine).get_table_names())
+    assert "ix_audit_event_id" in {
+        index["name"] for index in inspect(engine).get_indexes("audit_events")
+    }
+    engine.dispose()
+
+
+def test_sqlite_migration(tmp_path):
+    migrate(f"sqlite:///{tmp_path / 'migration.sqlite'}")
+
+
+def test_postgres_migration_and_storage(tmp_path):
+    # pgserver uses an isolated temporary Unix socket with no TCP listener.
+    server = pgserver.get_server(tmp_path / "pgdata", cleanup_mode="delete")
+    try:
+        url = server.get_uri().replace("postgresql://", "postgresql+psycopg://", 1)
+        from tg_control.auth import authenticate, rotate_credential
+        from tg_control.db import AuditEvent, Client, make_sessions
+
+        upgrade(url, "0003")
+        engine = make_engine(url)
+        sessions = make_sessions(engine)
+        with sessions() as session:
+            session.add(
+                AuditEvent(
+                    request_id="synthetic-request",
+                    actor_kind="system",
+                    event="synthetic",
+                    decision="success",
+                )
+            )
+            session.commit()
+        engine.dispose()
+        migrate(url)
+        engine = make_engine(url)
+        sessions = make_sessions(engine)
+        with sessions() as session:
+            assert session.scalar(select(AuditEvent).where(AuditEvent.event == "synthetic"))
+            client = Client(name="synthetic postgres client")
+            session.add(client)
+            session.flush()
+            token = rotate_credential(session, client.id)
+            session.commit()
+            assert authenticate(session, token) is not None
+        engine.dispose()
+    finally:
+        server.cleanup()
+
+
+def test_incremental_index_migration_preserves_audit_and_old_schema_fails_startup(settings):
+    from tg_control.api import create_app
+    from tg_control.db import AuditEvent, make_sessions
+
+    upgrade(settings.database_url, "0003")
+    engine = make_engine(settings.database_url)
+    with make_sessions(engine)() as session:
+        session.add(
+            AuditEvent(
+                request_id="synthetic-request",
+                actor_kind="system",
+                event="synthetic",
+                decision="success",
+            )
+        )
+        session.commit()
+    engine.dispose()
+    with pytest.raises(RuntimeError, match="database migrations are not up to date"):
+        with TestClient(create_app(settings)):
+            pass
+    migrate(settings.database_url)
+    engine = make_engine(settings.database_url)
+    with make_sessions(engine)() as session:
+        assert session.scalar(select(AuditEvent).where(AuditEvent.event == "synthetic"))
+    engine.dispose()
+    migration(settings.database_url, "downgrade", "0003")
+    engine = make_engine(settings.database_url)
+    assert "ix_audit_event_id" not in {
+        index["name"] for index in inspect(engine).get_indexes("audit_events")
+    }
+    with make_sessions(engine)() as session:
+        assert session.scalar(select(AuditEvent).where(AuditEvent.event == "synthetic"))
+    engine.dispose()
+    migrate(settings.database_url)
+    with TestClient(create_app(settings)) as client:
+        assert (
+            client.get(
+                "/health/live", headers={"Authorization": "Bearer " + settings.owner_token}
+            ).status_code
+            == 200
+        )
