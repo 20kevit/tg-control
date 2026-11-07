@@ -177,3 +177,27 @@ def test_unexpected_internal_failure_reports_only_the_exception_type(monkeypatch
         "error": "preflight failed",
         "error_type": "RuntimeError",
     }
+
+
+def test_ephemeral_media_staging_uses_a_lower_headroom_threshold(tmp_path, monkeypatch):
+    """Compose mounts media staging as a 256 MiB tmpfs; 1 GiB would always fail."""
+    from types import SimpleNamespace
+
+    import tg_control.preflight as preflight
+
+    state = tmp_path / "state"
+    state.mkdir(mode=0o700)
+    staging = tmp_path / "staging"
+    staging.mkdir(mode=0o700)
+    monkeypatch.setenv("TG_SYNTHETIC_STATE_DIR", str(state))
+    monkeypatch.setenv("TG_MEDIA_STAGING_DIR", str(staging))
+    monkeypatch.setattr(
+        preflight.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(total=0, used=0, free=100 * 1024 * 1024),
+    )
+    report = preflight.Report()
+    preflight._check_directories(report, preflight.MIN_FREE_MB)
+    statuses = {check["name"]: check["status"] for check in report.checks}
+    assert statuses["TG_SYNTHETIC_STATE_DIR"] == "fail"
+    assert statuses["TG_MEDIA_STAGING_DIR"] == "pass"

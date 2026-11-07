@@ -178,7 +178,7 @@ never binds a port, migrates, writes application state or prints a secret value.
 | required variables present and settings valid | exit 1 | `missing required configuration: <vars>`, validation message |
 | secret files are private regular files | exit 1 | `missing`, `unreadable`, `not_a_regular_file`, `group_or_world_accessible`, `empty` |
 | optional backup key parses and differs from the encryption key | exit 1 config / warn | `invalid Fernet key`, `backup key must differ from the encryption key` |
-| state directories exist, are private, writable, with headroom | exit 2 | `not_a_directory`, `not_writable_by_current_user`, `less than N MiB free` |
+| state directories exist, are private, writable, with headroom | exit 2 | `not_a_directory`, `not_writable_by_current_user`, `less than N MiB free` (persistent state: `--min-free-mb`, default 1024; ephemeral media staging: 64) |
 | database reachable | exit 3 | `connection failed` |
 | schema current with all tables | exit 3 | `missing`, `behind`, `ahead`, `unknown`, `incomplete` |
 

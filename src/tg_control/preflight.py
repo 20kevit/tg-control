@@ -41,6 +41,9 @@ SECRET_VARIABLES = (
 OPTIONAL_SECRET_VARIABLES = ("TG_BACKUP_KEY_FILE",)
 DIRECTORY_VARIABLES = ("TG_SYNTHETIC_STATE_DIR", "TG_MEDIA_STAGING_DIR")
 MIN_FREE_MB = 1024
+# Media staging is deliberately ephemeral (a small tmpfs in Compose), so the
+# persistent-state headroom figure would fail for a healthy container.
+STAGING_MIN_FREE_MB = 64
 
 
 class Report:
@@ -164,6 +167,12 @@ def _check_backup_key(report: Report, resolved: dict[str, str], settings: Settin
         report.add("backup_key", "pass", "independent private key")
 
 
+def _headroom_mb(variable: str, min_free_mb: int) -> int:
+    if variable == "TG_MEDIA_STAGING_DIR":
+        return min(min_free_mb, STAGING_MIN_FREE_MB)
+    return min_free_mb
+
+
 def _check_directories(report: Report, min_free_mb: int) -> None:
     for variable in DIRECTORY_VARIABLES:
         raw = os.environ.get(variable)
@@ -181,8 +190,9 @@ def _check_directories(report: Report, min_free_mb: int) -> None:
             _add_failure(report, variable, "storage", "disk usage unavailable")
             continue
         free_mb = usage.free // (1024 * 1024)
-        if free_mb < min_free_mb:
-            _add_failure(report, variable, "storage", f"less than {min_free_mb} MiB free")
+        required = _headroom_mb(variable, min_free_mb)
+        if free_mb < required:
+            _add_failure(report, variable, "storage", f"less than {required} MiB free")
         else:
             report.add(variable, "pass", f"private, writable, {free_mb} MiB free")
 
