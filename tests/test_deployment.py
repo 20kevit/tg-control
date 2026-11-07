@@ -232,6 +232,12 @@ def test_hosted_ci_workflow_is_pinned_least_privilege_and_runs_the_local_gate():
     assert "sudo chown -R 10001:10001 secrets" in deployment_doc
     assert "secret file unreadable" in deployment_doc
 
+    # Secrets are captured while readable and never re-read after the chown.
+    assert 'DATABASE_URL_VALUE="$(cat secrets/database_url)"' in smoke
+    assert 'value="$(cat "$secret")"' not in smoke
+    assert 'scan_for_leak database_url "$DATABASE_URL_VALUE"' in smoke
+    assert "title=api-smoke" in smoke
+
     # A failure without an explicit message must still produce an annotation.
     assert "trap 'code=$?; printf \"::error title=container-smoke::line %s failed" in smoke
     # The database is up (but unmigrated) when the schema gate is asserted.

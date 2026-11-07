@@ -46,6 +46,9 @@ fi
 # made 0400 and owned by the container UID below.
 TOKEN="$(cat secrets/owner_token)"
 [ -n "$TOKEN" ] || fail "owner token file is empty"
+ENCRYPTION_KEY="$(cat secrets/encryption_key)"
+POSTGRES_PASSWORD="$(cat secrets/postgres_password)"
+DATABASE_URL_VALUE="$(cat secrets/database_url)"
 mkdir -p state/postgres state/synthetic
 chmod 700 state state/postgres state/synthetic
 # The image runs as an unprivileged UID with no capabilities; the bind mounts
@@ -111,6 +114,7 @@ log "synthetic API smoke"
 python3 - "$TOKEN" <<'PY'
 import json
 import sys
+import urllib.error
 import urllib.request
 
 token = sys.argv[1]
@@ -132,37 +136,49 @@ def call(method, path, payload=None, credential=None):
         return json.loads(response.read() or b"{}")
 
 
-account = call("POST", "/v1/admin/accounts", {"alias": "container smoke", "phone_number": "+12025550142"})
-client = call("POST", "/v1/admin/clients", {"name": "container smoke client"})
-call(
-    "PUT",
-    f"/v1/admin/clients/{client['id']}/accounts/{account['id']}/policy",
-    {
-        "read": {"enabled": True, "allow_types": ["public_channel"]},
-        "write": {"enabled": True, "allow_chats": ["public-channel"]},
-        "admin": {"enabled": False},
-    },
-)
-batch = call(
-    "POST",
-    "/v1/execute",
-    {
-        "actions": [
-            {
-                "account_id": account["id"],
-                "operation": "send",
-                "chat_id": "public-channel",
-                "text": "synthetic container smoke",
-            }
-        ],
-        "idempotency_key": __import__("uuid").str(__import__("uuid").uuid4()),
-    },
-    credential=client["credential"],
-)
-assert batch["items"][0]["status"] == "success", batch
-accounts = call("GET", "/v1/accounts", credential=client["credential"])
-assert accounts["accounts"][0]["id"] == account["id"]
-print("api smoke ok", account["id"])
+def main():
+    account = call("POST", "/v1/admin/accounts", {"alias": "container smoke", "phone_number": "+12025550142"})
+    client = call("POST", "/v1/admin/clients", {"name": "container smoke client"})
+    call(
+        "PUT",
+        f"/v1/admin/clients/{client['id']}/accounts/{account['id']}/policy",
+        {
+            "read": {"enabled": True, "allow_types": ["public_channel"]},
+            "write": {"enabled": True, "allow_chats": ["public-channel"]},
+            "admin": {"enabled": False},
+        },
+    )
+    batch = call(
+        "POST",
+        "/v1/execute",
+        {
+            "actions": [
+                {
+                    "account_id": account["id"],
+                    "operation": "send",
+                    "chat_id": "public-channel",
+                    "text": "synthetic container smoke",
+                }
+            ],
+            "idempotency_key": __import__("uuid").str(__import__("uuid").uuid4()),
+        },
+        credential=client["credential"],
+    )
+    assert batch["items"][0]["status"] == "success", batch
+    accounts = call("GET", "/v1/accounts", credential=client["credential"])
+    assert accounts["accounts"][0]["id"] == account["id"]
+    print("api smoke ok", account["id"])
+
+
+try:
+    main()
+except urllib.error.HTTPError as exc:
+    detail = exc.read().decode("utf-8", "replace")[:400]
+    print(f"::error title=api-smoke::HTTP {exc.code} {detail}"[:900])
+    raise SystemExit(1) from None
+except Exception as exc:  # noqa: BLE001 - the reason must reach the annotation
+    print(f"::error title=api-smoke::{type(exc).__name__}: {exc}"[:900])
+    raise SystemExit(1) from None
 PY
 
 log "state persistence across container recreation"
@@ -191,12 +207,15 @@ health /health/ready >/dev/null || fail "gateway did not become ready after grac
 
 log "secret leakage scan of container logs"
 FULL_LOGS="$(docker compose logs --no-color)"
-for secret in secrets/owner_token secrets/encryption_key secrets/postgres_password secrets/database_url; do
-  value="$(cat "$secret")"
-  if printf '%s' "$FULL_LOGS" | grep -qF "$value"; then
-    fail "secret from $secret appears in container logs"
+scan_for_leak() {
+  if printf '%s' "$FULL_LOGS" | grep -qF "$2"; then
+    fail "secret $1 appears in container logs"
   fi
-done
+}
+scan_for_leak owner_token "$TOKEN"
+scan_for_leak encryption_key "$ENCRYPTION_KEY"
+scan_for_leak postgres_password "$POSTGRES_PASSWORD"
+scan_for_leak database_url "$DATABASE_URL_VALUE"
 log "log scan OK"
 
 log "every health route fails closed when the database is unavailable"
