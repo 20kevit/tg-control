@@ -30,6 +30,11 @@ WORKDIR /build
 # lock file changes. `--require-hashes` rejects an unpinned or tampered package.
 COPY requirements.lock pyproject.toml ./
 RUN python -m pip install --require-hashes --prefix=/install -r requirements.lock
+# The project is built with build isolation disabled so no build backend is
+# fetched implicitly. That requires the exact backends declared in
+# [build-system] to exist in this stage; without `wheel` pip cannot produce a
+# wheel and the build fails with exit code 2.
+RUN python -m pip install --no-cache-dir "setuptools==84.2.1" "wheel==0.48.0"
 COPY src ./src
 RUN python -m pip install --no-build-isolation --no-deps --prefix=/install .
 

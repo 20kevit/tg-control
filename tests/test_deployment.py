@@ -316,3 +316,19 @@ def test_release_build_is_byte_reproducible(tmp_path):
         digests.append(digest)
         assert provenance["artifacts"][wheel.name] == digest
     assert digests[0] == digests[1], "release build is not reproducible"
+
+
+def test_dockerfile_installs_the_pinned_build_backends_before_building():
+    """An image build regression found only on a real runner (hosted CI, 2026-11-07).
+
+    The project is installed with `--no-build-isolation`, so `setuptools` and
+    `wheel` must already exist in the builder stage. `python:3.11-slim` has no
+    `wheel`, so the build failed with exit code 2 before this was pinned.
+    """
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    build_index = dockerfile.index("--no-build-isolation")
+    backend_index = dockerfile.index('"setuptools==')
+    assert backend_index < build_index
+    build_system = (ROOT / "pyproject.toml").read_text().split("build-backend")[0]
+    for requirement in re.findall(r'"((?:setuptools|wheel)==[^"]+)"', build_system):
+        assert f'"{requirement}"' in dockerfile, requirement
