@@ -205,3 +205,23 @@ points are covered by their own tests but appear as unmeasured lines, so the
 reported total is a lower bound. `pip-audit` needs network access to PyPI; the
 hosted workflow runs it against `requirements.lock` and fails on a known
 vulnerability.
+
+## Hosted CI and the container smoke test
+
+`.github/workflows/ci.yaml` runs two jobs. The quality job is the canonical local
+gate plus coverage and the dependency audit; the container job builds the image,
+runs `scripts/container_smoke.sh`, and inspects the image's user and environment.
+Both are green at run `42399624830`.
+
+```bash
+# what the container job does (needs a Docker daemon; blocked in this sandbox)
+bash scripts/container_smoke.sh
+# static half of the same job, runnable anywhere
+python -m pytest -q tests/test_deployment.py
+```
+
+The smoke script is self-checking in both directions: it requires preflight to
+*reject* the unmigrated database and to pass afterwards, requires the gateway to
+stay unready after the database returns (latched guard, ADR-005) and to become
+ready after the documented restart, and annotates the failing line when a command
+fails under `set -e` so a hosted failure is diagnosable without log access.

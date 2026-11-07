@@ -54,10 +54,15 @@ Properties enforced by the Dockerfile and asserted by `tests/test_deployment.py`
   **readiness** endpoint with the owner credential. A process that merely accepts
   connections is not healthy.
 
-Build evidence: **Blocked**. No Docker/Podman/Buildah binary, no container
-socket and no effective capabilities (`CapEff: 0`) exist in the development
-sandbox. The Dockerfile is reviewed statically and is exercised by the hosted CI
-workflow, but it has not been built locally.
+Build evidence: **Executed on hosted CI, blocked locally.** The development
+sandbox has no Docker/Podman/Buildah binary, no container socket and no effective
+capabilities (`CapEff: 0`), so nothing here can build or run the image. The hosted
+workflow does build it: run `42399624830` (job `128485217819`) built the image,
+ran `scripts/container_smoke.sh` end to end and inspected the resulting image.
+Six deployment defects were found and fixed by that first real run (workflow
+dependency installation, `pipefail` masking, missing `wheel` in the builder,
+secret mount ownership, tmpfs headroom, and `schema_state` reporting an
+unmigrated database as unreachable) — see `STATUS.md`.
 
 ## 3. Configure
 
@@ -260,13 +265,16 @@ executed, no leaks). `scripts/container_smoke.sh` performs the same scan over
 
 | Check | Status |
 |---|---|
-| Dockerfile/Compose static assertions | **Executed locally** (`tests/test_deployment.py`, 10 tests) |
+| Dockerfile/Compose static assertions | **Executed locally** (`tests/test_deployment.py`, 11 tests) |
 | Deployment preflight (config, permissions, disk, database, schema) | **Executed locally** (`tests/test_preflight.py`, 7 tests) |
 | Compose YAML parse + security posture | **Executed locally** (`tests/test_operational_config.py`) |
 | Host-process lifecycle, health, graceful stop, restart persistence, database-outage fail-closed, failure modes | **Executed locally** (`tests/test_runtime_lifecycle.py` → `scripts/runtime_smoke.py`, 11 scenarios) |
 | Image build, `docker compose config`, container start/recreate, in-container non-root check, log scan | **Blocked** — no container runtime in the development sandbox (`CapEff: 0`, no socket) |
-| Hosted CI execution of the workflow | **Not executed** — `.github/workflows/ci.yaml` exists and is statically checked, but no run has happened on GitHub |
-| Dependency vulnerability audit of the lockfile | **Executed locally** (`pip-audit -r requirements.lock --strict` → no known vulnerabilities); not yet run by hosted CI |
+| Hosted CI execution of the workflow | **Executed** — run `42399624830`, both jobs green |
+| Container image build, compose validation and disposable smoke test | **Executed on hosted CI** (run `42399624830`) with `scripts/container_smoke.sh`; **blocked locally** (no container runtime) |
+| Image user and environment inspection (`10001:10001`, no secret-like env) | **Executed on hosted CI** (same run) |
+| Base-image digest pinning, image vulnerability/SBOM scan, image publication | **Not executed** — no registry access decision or scanning tool in the accepted scope |
+| Dependency vulnerability audit of the lockfile | **Executed locally and on hosted CI** (`pip-audit -r requirements.lock --strict` → no known vulnerabilities) |
 | Image/OS vulnerability scan, digest pinning | **Blocked / requires owner action** (network + registry approval) |
 | Graceful shutdown under sustained load, concurrent startup/migration, long-running soak | **Not tested** — the shutdown path is verified with idle/short requests only |
 | Any deployment to a real host | **Not performed and not authorized** |
