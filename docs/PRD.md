@@ -22,3 +22,8 @@ TG-Control is a personal-account Telegram gateway, not a Bot API bot. Its client
 ## Non-goals / constraints
 
 No promise of unlimited history, media availability, atomic cross-chat writes, unrestricted exports, a rule engine, message-triggered automation, Telegram Bot API, or production deployment. A production release requires the explicit approvals and evidence in `COMPLIANCE.md` and `ROADMAP.md`.
+
+
+## Detailed contract references
+
+The complete requirement map and autonomy/approval policy are in [CONTRACT_INDEX.md](CONTRACT_INDEX.md). Event delivery, durable scheduling, and workflows are specified in [EVENTS_JOBS_WORKFLOWS.md](EVENTS_JOBS_WORKFLOWS.md). Reply-aware commands including /save, media transfer, provider-independent AI tasks, and plugin lifecycle are specified in [COMMANDS_MEDIA_AI_PLUGINS.md](COMMANDS_MEDIA_AI_PLUGINS.md). These contracts are required foundations; optional user-facing modules remain candidates until owner-approved.
