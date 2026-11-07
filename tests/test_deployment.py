@@ -217,6 +217,13 @@ def test_hosted_ci_workflow_is_pinned_least_privilege_and_runs_the_local_gate():
     # installed afterward so they cannot move the runtime surface.
     assert "--require-hashes -r requirements.lock" in raw
     assert "python -m pip check" in raw
+    # Compose mounts secrets as bind mounts, so the container user must own them.
+    assert 'chown -R "$UID_TARGET:$GID_TARGET" state secrets' in smoke
+    assert "chmod 400 secrets/*" in smoke
+    deployment_doc = (ROOT / "docs" / "DEPLOYMENT.md").read_text()
+    assert "sudo chown -R 10001:10001 secrets" in deployment_doc
+    assert "secret file unreadable" in deployment_doc
+
     # The smoke script exercises the schema gate in both directions: preflight
     # must refuse an unmigrated database and pass after the migration service.
     assert "preflight passed on an unmigrated database" in smoke

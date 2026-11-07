@@ -66,11 +66,18 @@ Secrets are files, never environment literals and never Compose values:
 ```bash
 python scripts/init_synthetic_secrets.py --directory ./secrets
 chmod 700 secrets
+# Compose mounts these files into the container as bind mounts, which preserve
+# the host owner and mode. The image runs as UID 10001, so that user must be able
+# to read them: 0600 root-owned files fail with "secret file unreadable".
+sudo chown -R 10001:10001 secrets
+chmod 400 secrets/*
 ```
 
 That writes six synthetic files (database URL, owner token, encryption key,
 backup database URL, backup encryption key, backblaze-style placeholders where
-used). It refuses to overwrite existing files, prints nothing and sets `0600`.
+used). It refuses to overwrite existing files, prints nothing and sets `0600`;
+the ownership/mode above is what makes them readable by the container user while
+staying unreadable to everything else.
 
 | Variable | Required | Purpose |
 |---|---|---|
@@ -290,4 +297,5 @@ real evidence.
 | readiness `503`, liveness `200` | database down or schema drift | `docker compose ps`, `docker compose logs db` |
 | container restarts repeatedly | startup rejection (see logs) | fix configuration; the gateway is designed to fail closed |
 | permission denied on `state/` | bind mount not owned by 10001 | `sudo chown -R 10001:10001 state` |
+| preflight reports `secret file unreadable` (or the gateway exits 1 on start) | secret files are 0600 and owned by the invoking user, but Compose bind-mounts them into a UID-10001 container | `sudo chown -R 10001:10001 secrets && chmod 700 secrets && chmod 400 secrets/*` |
 | `instance_guard lost` in diagnostics | a second instance is running | stop the duplicate; single-instance only |

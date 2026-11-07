@@ -40,14 +40,20 @@ chmod 700 state state/postgres state/synthetic
 # the documented chown commands.
 UID_TARGET="${TG_UID:-10001}"
 GID_TARGET="${TG_GID:-10001}"
-if [ "$(stat -c %u state/postgres)" != "$UID_TARGET" ]; then
+# Compose file secrets are bind mounts: the file keeps its host ownership and
+# mode inside the container, so a 0600 root-owned secret is unreadable by the
+# unprivileged container user. Own them by the target UID and make them read-only.
+if [ "$(stat -c %u state/postgres)" != "$UID_TARGET" ] ||
+   [ "$(stat -c %u secrets/owner_token)" != "$UID_TARGET" ]; then
   if command -v sudo >/dev/null 2>&1; then
-    sudo chown -R "$UID_TARGET:$GID_TARGET" state
+    sudo chown -R "$UID_TARGET:$GID_TARGET" state secrets
   else
-    chown -R "$UID_TARGET:$GID_TARGET" state 2>/dev/null || \
-      fail "state directories must be owned by $UID_TARGET:$GID_TARGET (chown them first)"
+    chown -R "$UID_TARGET:$GID_TARGET" state secrets 2>/dev/null || \
+      fail "state and secrets must be owned by $UID_TARGET:$GID_TARGET (chown them first)"
   fi
 fi
+chmod 700 secrets
+chmod 400 secrets/*
 
 TOKEN="$(cat secrets/owner_token)"
 [ -n "$TOKEN" ] || fail "owner token file is empty"
