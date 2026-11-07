@@ -159,3 +159,21 @@ def test_configuration_failure_takes_precedence_over_storage(tmp_path):
     env["TG_SYNTHETIC_STATE_DIR"] = str(state)
     result = run_preflight(env)
     assert result.returncode == 1
+
+
+def test_unexpected_internal_failure_reports_only_the_exception_type(monkeypatch, capsys):
+    """A hosted-only failure must be diagnosable without exposing data."""
+
+    import tg_control.preflight as preflight
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("postgresql://owner:secret@db/gateway")
+
+    monkeypatch.setattr(preflight, "run", explode)
+    assert preflight.main(["--json"]) == 4
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "ok": False,
+        "error": "preflight failed",
+        "error_type": "RuntimeError",
+    }

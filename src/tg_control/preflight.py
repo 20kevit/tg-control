@@ -215,7 +215,12 @@ def run(min_free_mb: int = MIN_FREE_MB) -> Report:
     settings: Settings | None = None
     try:
         settings = Settings.from_env()
-    except (RuntimeError, ValueError) as exc:
+    except OSError as exc:
+        # A missing or unreadable secret file surfaces as OSError; report only
+        # the fixed category, never the path.
+        _add_failure(report, "settings", "config", "secret file unreadable")
+        del exc
+    except Exception as exc:
         message = str(exc)
         if not message.startswith("missing required configuration"):
             # Validation errors from Settings are fixed strings; keep them but
@@ -238,9 +243,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         report = run(min_free_mb=max(0, args.min_free_mb))
-    except Exception:
+    except Exception as exc:
         # Never print exception text: it can embed paths or connection strings.
-        print(json.dumps({"ok": False, "error": "preflight failed"}))
+        # The class name is safe and makes a hosted failure diagnosable.
+        failure = {"ok": False, "error": "preflight failed", "error_type": type(exc).__name__}
+        print(json.dumps(failure))
         return 4
     code = report.exit_code()
     payload = {
