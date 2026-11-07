@@ -11,7 +11,12 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
 log() { printf '\n== %s\n' "$1"; }
-fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
+fail() {
+  printf 'FAIL: %s\n' "$1" >&2
+  # A work-flow annotation keeps a hosted failure diagnosable without log access.
+  printf '::error title=container-smoke::%s\n' "$(printf '%s' "$1" | tr '\n\r' '  ')"
+  exit 1
+}
 
 command -v docker >/dev/null 2>&1 || fail "docker CLI is unavailable"
 docker info >/dev/null 2>&1 || fail "docker daemon is unavailable"
