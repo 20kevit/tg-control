@@ -234,12 +234,15 @@ def main() -> None:
         "",
         "## Verification and remaining gaps",
         "",
-        "Last recorded hosted baseline: workflow [42454395796] "
-        "(https://github.com/20kevit/tg-control/actions/runs/42454395796) "
-        "passed quality and container jobs at commit `e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded`. "
-        "That historical synthetic container smoke is not evidence for the current branch, "
-        "VPS, production or live Telegram. Current local synthetic CI evidence is in STATUS.md; "
-        "this working branch still requires hosted verification.",
+        "Hosted [push run 42467168708](https://github.com/20kevit/tg-control/actions/runs/"
+        "42467168708) and [PR run 42467566017](https://github.com/20kevit/tg-control/actions/runs/"
+        "42467566017) "
+        "passed quality/dependency audit and image-build/Compose/container-smoke jobs at "
+        "implementation commit `796b2d8d0817dc6f00b9170e9afe80c6549f6fc8`. The prior "
+        "[42454395796](https://github.com/20kevit/tg-control/actions/runs/42454395796) "
+        "baseline (`e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded`) is historical only. The current "
+        "local run, hosted evidence and boundaries are recorded in STATUS.md; neither run "
+        "establishes VPS, production or live Telegram behavior.",
         "",
         "| Requirement | Contract | Status | Why |",
         "|---|---|---|---|",
