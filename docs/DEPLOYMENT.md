@@ -273,9 +273,9 @@ executed, no leaks). `scripts/container_smoke.sh` performs the same scan over
 | Compose YAML parse + security posture | **Executed locally** (`tests/test_operational_config.py`) |
 | Host-process lifecycle, health, graceful stop, restart persistence, database-outage fail-closed, failure modes | **Executed locally** (`tests/test_runtime_lifecycle.py` → `scripts/runtime_smoke.py`, 11 scenarios) |
 | Image build, `docker compose config`, container start/recreate, in-container non-root check, log scan | **Executed on hosted CI**; **blocked locally** — no container runtime in the development sandbox (`CapEff: 0`, no socket) |
-| Hosted CI execution of the workflow | **Executed** — run `42399624830` and re-confirmed green on later commits, both jobs |
-| Container image build, compose validation and disposable smoke test | **Executed on hosted CI** (run `42399624830`) with `scripts/container_smoke.sh`; **blocked locally** (no container runtime) |
-| Image user and environment inspection (`10001:10001`, no secret-like env) | **Executed on hosted CI** (same run) |
+| Hosted CI execution of the workflow | **Executed** — both jobs passed in run `42454395796` at commit `e594ef6fa63a1500aa6feae60d39dfa8bf8ded`; the later documentation-only sync commit requires its own run |
+| Container image build, compose validation and disposable smoke test | **Executed on hosted CI** (run `42454395796`, commit `e594ef6fa63a1500aa6feae60d39dfa8bf8ded`) with `scripts/container_smoke.sh`; **blocked locally** (no container runtime) |
+| Image user and environment inspection (`10001:10001`, no secret-like env) | **Executed on hosted CI** (run `42454395796`) |
 | Dependency vulnerability audit of the lockfile | **Executed locally and on hosted CI** (`pip-audit -r requirements.lock --strict` → no known vulnerabilities) |
 | Base-image digest pinning, image/OS vulnerability and SBOM scan, image publication | **Not executed / requires owner approval** — registry access and a scanning tool are outside the accepted scope |
 | Graceful shutdown under sustained load, concurrent startup/migration, long-running soak | **Not tested** — the shutdown path is verified with idle/short requests only |
