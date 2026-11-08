@@ -93,8 +93,8 @@ def test_hosted_pipeline_evidence_has_revision_and_run():
     rows = [row for row in matrix_rows() if len(row) == 6 and row[0] != "Area"]
     hosted = [row for row in rows if row[5] == "Hosted-CI-tested"]
     assert hosted and all(row[0] == "Hosted CI pipeline" for row in hosted)
-    assert "42403984753" in text
-    assert "4fd45514b0d967ef3437f3053bae50c9c3efb085" in text
+    assert "42454395796" in text
+    assert "e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded" in text
 
 
 def test_markdown_local_link_targets_exist():
