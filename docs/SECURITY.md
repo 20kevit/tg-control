@@ -55,7 +55,7 @@ Retained limitations: the throttle is process-local (a restart clears counters a
 
 | Control | Implementation | Evidence / status |
 |---|---|---|
-| Unprivileged runtime identity | fixed UID/GID 10001, `nologin` shell, no home, `USER 10001:10001` in image and Compose | static assertions `tests/test_deployment.py`; in-container `id -u` check in `scripts/container_smoke.sh` (**blocked**, no daemon) |
+| Unprivileged runtime identity | fixed UID/GID 10001, `nologin` shell, no home, `USER 10001:10001` in image and Compose | static assertions `tests/test_deployment.py`; in-container `id -u` check in `scripts/container_smoke.sh` (executed in hosted container smoke; not locally) |
 | Capability and privilege reduction | `cap_drop: ALL`, `no-new-privileges`, no Docker socket, no `privileged`, no host network/PID, no published database port | `tests/test_deployment.py`, `tests/test_operational_config.py` |
 | Secret injection | mounted files only (`*_FILE` variables); no secrets in image layers, Compose values, `.env.example` or build args; log scan for owner token, DSN and keys | `tests/test_deployment.py`, `tests/test_runtime_lifecycle.py::...` (log scan executed, no leaks) |
 | Filesystem exposure | read-only rootfs; tmpfs `/tmp` 64 MiB and media staging 256 MiB with `noexec,nosuid`; state volumes `0700` owned by 10001; synthetic state directory refuses group/world access | Compose assertions; runtime harness scenario `insecure_state_dir_refused` |

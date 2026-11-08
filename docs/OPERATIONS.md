@@ -1,22 +1,10 @@
 # Operations: synthetic-only development
 
-**Do not deploy or connect real Telegram accounts/data.** The image/Compose build, container startup, recreation and in-container checks are **not executed** in the development sandbox (no container runtime): see `DEPLOYMENT.md` §8 for the exact matrix and `STATUS.md` for the recorded commands. Host-process lifecycle, health, graceful shutdown, restart persistence and failure modes *are* executed by `tests/test_runtime_lifecycle.py`. Production, remote access, credentials, external infrastructure, destructive actions and firewall/DNS changes require separate explicit owner approval and the unresolved compliance decision. The following is a local development procedure, not a production-ready deployment. Docker/Compose have not been run in the current environment; verify them on a disposable local machine before use. See [status](STATUS.md).
+**Synthetic data only.** The [deployment guide](DEPLOYMENT.md) is the authoritative Docker setup, including file ownership and explicit migrations. Hosted container smoke passed at the commit recorded in [status](STATUS.md); it does not verify this sandbox, a VPS, production, or real Telegram. Production, external exposure and real credentials require separate approval and the unresolved compliance decision.
 
 ## Local Docker setup
 
-Requirements: Docker Compose v2, non-root host user, Python for local secret generation, and a private working directory. The pinned image tags can move; release builds must pin reviewed image digests and rescan OS packages. Start exactly **one gateway process/worker/instance**. No Telegram library is enabled.
-
-1. From the repository, create private, ignored directories (`state/`, `secrets/`, `backups/`) without overwriting any existing data. Ensure `state/postgres`, `state/synthetic` and `secrets` are owned by the current non-root user and mode 0700. Never share or commit the generated files.
-2. Provision **new synthetic-development-only** files `secrets/postgres_password`, `secrets/database_url`, `secrets/backup_database_url`, `secrets/owner_token`, `secrets/encryption_key` and `secrets/backup_key`, each mode 0600 and owned by the current user. To generate them locally without printing or overwriting values, install the Python development environment and run `.venv/bin/python scripts/init_synthetic_secrets.py --directory ./secrets`. The script refuses existing target files. The PostgreSQL password and owner token are independently generated high-entropy random values; encryption and backup keys are independent Fernet keys. The URL uses the same generated password. Never paste values into chat, shell history, Git, or AI clients. Compose file-backed secrets are bind mounts; matching host UID/GID is required.
-3. Export only non-secret numeric IDs, e.g. `export TG_UID="$(id -u)" TG_GID="$(id -g)"`. Do not use UID 0. Then, after reviewing the compose file:
-
-```sh
-# migrations are a one-shot, explicit service (profile `tools`) -- never automatic
-docker compose run --rm migrate        # == python -m alembic upgrade head
-docker compose up -d --wait gateway    # waits for the readiness-based health check
-```
-
-Open `http://127.0.0.1:8000/admin/` locally. Uvicorn listens inside the container but Compose publishes only loopback; PostgreSQL has no published port by default. Migrations are an explicit operation, never automatic at startup. Startup fails closed if the schema revision is not current. The health endpoints require the owner Bearer credential; `/health/live` also requires the mandatory audit write and `/health/ready` additionally checks database connectivity. The container health probe reads the owner token from its private file and connects only to loopback, without putting the token in its command line or logs. Each successful probe creates start/outcome audit events (at the default 30-second interval, roughly 5,760 rows/day); monitor growth and perform owner-approved pruning according to retention. When the panel remains open, its two monitoring/history polls create approximately 17,280 more audit rows/day, plus roughly 11,520 rows/day for each enabled account's status poll. Never configure access/body/authorization logging or trust proxy headers. Check container health, storage capacity, audit failures and `media maintenance failed` without recording secrets/content.
+Follow [deployment configuration and startup](DEPLOYMENT.md#3-configure) on a disposable host. Start exactly one gateway process/worker/instance; do not use real Telegram data.
 
 The application uses a **cooperative single-instance guard**: PostgreSQL holds a dedicated session-level advisory lock for this metadata database; a second cooperating gateway cannot start while that lock is held. Connect directly to PostgreSQL or through a connection pooler that preserves one backend session for the entire connection; transaction-pooling proxies are unsupported. Development SQLite uses a private `DATABASE_FILENAME.tg-control.lock` alongside the database, and requires POSIX locking and a private local directory. Do not delete or replace that lock file while the gateway is running; it remains after normal shutdown. SQLite URI options and shared file-URI databases are not supported by this guard, and different hard-link paths can bypass it. In-memory SQLite databases are isolated per application.
 
@@ -112,7 +100,7 @@ Every archive records manifest **version 2**: `includes_state`, `app_version`, `
 | Cache entries | TTL (`0` disables) | Every write/invalidate | Process memory only |
 | Logs | host policy | Log rotation / journald | Outside the database; not pruned by the gateway |
 
-Every prune endpoint accepts `dry_run: true`, reports `eligible`/`deleted`, is idempotent (a repeat deletes nothing) and records an audit event. Pruning is deletion from the active store only: filesystem snapshots, backups and WAL can retain older bytes. There is no automatic scheduler-triggered pruning; an operator or external job must call the endpoints. Scheduling that externally is a deployment decision and remains pending.
+Every prune endpoint accepts `dry_run: true`, reports `eligible`/`deleted`, is idempotent (a repeat deletes nothing) and records an audit event. Pruning is deletion from the active store only: filesystem snapshots, backups and WAL can retain older bytes. Optional internal scheduled pruning is described below; external scheduling remains a deployment decision.
 
 ## Troubleshooting
 
@@ -138,10 +126,10 @@ Three paths exist and they never conflict:
 Safety properties of the automatic path:
 
 - It is an alias for the same routines: a queued, scheduled, running, retry-waiting or paused job and a running workflow run are never eligible.
-- It runs only while this process holds the single-instance guard, so it cannot race a second writer.
+- It checks the cooperative single-instance guard before running; noncooperating writers and loss after the check can still race.
 - A fresh process waits a full interval before its first pass, so a short-lived process never deletes anything.
 - One failing step does not stop the others; the pass is recorded as a failure and reported in diagnostics rather than retried in a hot loop.
-- Exactly one metadata-only audit row per pass (`retention_auto_prune`, `decision: allow|deny`, `error_code: retention_failed`). Counts and identifiers are never written to audit.
+- Each pass attempts one metadata-only audit row (`retention_auto_prune`, `decision: allow|deny`, `error_code: retention_failed`). If writing or committing it fails, diagnostics report failure; the missing record cannot be recovered from that diagnostic. Counts and identifiers are never written to audit.
 - `GET /v1/admin/diagnostics` → `retention.auto_prune` reports `state` (`disabled|enabled|invalid`), `interval_minutes`, `last_run_age_seconds` and `last_run_outcome`.
 - Disabling the setting stops future passes immediately; already-deleted history cannot be restored from the repository (restore from a verified backup instead).
 

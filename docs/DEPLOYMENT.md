@@ -54,7 +54,7 @@ Properties enforced by the Dockerfile and asserted by `tests/test_deployment.py`
   **readiness** endpoint with the owner credential. A process that merely accepts
   connections is not healthy.
 
-Build evidence: **Executed on hosted CI, blocked locally.** The development
+Build evidence: **Executed on hosted CI at the revision in [status](STATUS.md), not locally.** The development
 sandbox has no Docker/Podman/Buildah binary, no container socket and no effective
 capabilities (`CapEff: 0`), so nothing here can build or run the image. The hosted
 workflow does build it: run `42399624830` (job `128485217819`) built the image,
@@ -79,9 +79,9 @@ chmod 400 secrets/*
 sudo chown -R 10001:10001 secrets
 ```
 
-That writes six synthetic files (database URL, owner token, encryption key,
-backup database URL, backup encryption key, backblaze-style placeholders where
-used). It refuses to overwrite existing files, prints nothing and sets `0600`;
+That writes six synthetic files: PostgreSQL password, database URL, owner token,
+encryption key, backup database URL and backup key. It refuses to overwrite existing files,
+prints a confirmation without values and sets `0600`;
 the ownership/mode above is what makes them readable by the container user while
 staying unreadable to everything else.
 
@@ -120,8 +120,8 @@ configured UID; a root-owned bind mount breaks both. Prepare it explicitly:
 
 ```bash
 mkdir -p state/postgres state/synthetic
-sudo chown -R 10001:10001 state
 chmod 700 state state/postgres state/synthetic
+sudo chown -R 10001:10001 state
 ```
 
 `state/synthetic` must not be group- or world-accessible: the application
@@ -131,7 +131,10 @@ refuses to open a synthetic state directory with looser permissions (asserted by
 ## 5. Start, verify, stop
 
 ```bash
-# 0. read-only preflight: configuration, file privacy, disk, database, schema
+# 0. read-only preflight: start the disposable database first. An unmigrated
+# database is expected to fail the schema check; a stopped database fails reachability.
+docker compose up -d --wait db
+# Check configuration, file privacy, disk, database and schema
 docker compose run --rm --no-deps --entrypoint python gateway -m tg_control.preflight
 
 # 1. migrations are an explicit one-shot step
@@ -141,7 +144,7 @@ docker compose run --rm migrate
 docker compose up -d --wait gateway
 
 # 3. verify
-TOKEN="$(cat secrets/owner_token)"
+TOKEN="$(sudo cat secrets/owner_token)"  # file is owned by UID 10001 after setup
 curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/health/live
 curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/health/ready
 curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/health/dependencies
@@ -270,9 +273,9 @@ executed, no leaks). `scripts/container_smoke.sh` performs the same scan over
 | Compose YAML parse + security posture | **Executed locally** (`tests/test_operational_config.py`) |
 | Host-process lifecycle, health, graceful stop, restart persistence, database-outage fail-closed, failure modes | **Executed locally** (`tests/test_runtime_lifecycle.py` → `scripts/runtime_smoke.py`, 11 scenarios) |
 | Image build, `docker compose config`, container start/recreate, in-container non-root check, log scan | **Executed on hosted CI**; **blocked locally** — no container runtime in the development sandbox (`CapEff: 0`, no socket) |
-| Hosted CI execution of the workflow | **Executed** — run `42399624830` and re-confirmed green on later commits, both jobs |
-| Container image build, compose validation and disposable smoke test | **Executed on hosted CI** (run `42399624830`) with `scripts/container_smoke.sh`; **blocked locally** (no container runtime) |
-| Image user and environment inspection (`10001:10001`, no secret-like env) | **Executed on hosted CI** (same run) |
+| Hosted CI execution of the workflow | **Executed** — both jobs passed in run `42454395796` at commit `e594ef6fa63a1500aa6feae60d39dfa8bf8ded`; the later documentation-only sync commit requires its own run |
+| Container image build, compose validation and disposable smoke test | **Executed on hosted CI** (run `42454395796`, commit `e594ef6fa63a1500aa6feae60d39dfa8bf8ded`) with `scripts/container_smoke.sh`; **blocked locally** (no container runtime) |
+| Image user and environment inspection (`10001:10001`, no secret-like env) | **Executed on hosted CI** (run `42454395796`) |
 | Dependency vulnerability audit of the lockfile | **Executed locally and on hosted CI** (`pip-audit -r requirements.lock --strict` → no known vulnerabilities) |
 | Base-image digest pinning, image/OS vulnerability and SBOM scan, image publication | **Not executed / requires owner approval** — registry access and a scanning tool are outside the accepted scope |
 | Graceful shutdown under sustained load, concurrent startup/migration, long-running soak | **Not tested** — the shutdown path is verified with idle/short requests only |

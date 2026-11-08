@@ -198,6 +198,26 @@ def test_a_failing_step_does_not_block_the_others_and_is_audited():
     }
 
 
+
+def test_audit_write_failure_is_visible_in_scheduled_diagnostics():
+    class BrokenAudit(FakeAudit):
+        def record(self, session, **kwargs):
+            raise RuntimeError("sensitive audit failure")
+
+    clock = {"now": 0.0}
+    runner = build_runner(
+        clock=lambda: clock["now"],
+        policy=AutoPrunePolicy(enabled=True, interval_minutes=60),
+        audit=BrokenAudit(),
+    )
+    clock["now"] = 3600.0
+    result = asyncio.run(runner.run_if_due())
+    assert result["outcome"] == "failure"
+    assert result["failed_steps"] == ["audit_record"]
+    assert runner.snapshot()["last_run_outcome"] == "failure"
+    assert "sensitive" not in str(result)
+    assert asyncio.run(runner.run_if_due()) is None
+
 def _sessions_for(settings):
     return make_sessions(make_engine(settings.database_url))
 

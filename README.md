@@ -13,16 +13,13 @@ Start with [the product and engineering contract index](docs/CONTRACT_INDEX.md).
 
 ## Container quickstart (synthetic only)
 
-```sh
-python scripts/init_synthetic_secrets.py --directory ./secrets
-mkdir -p state/postgres state/synthetic && sudo chown -R 10001:10001 state
-docker compose run --rm migrate          # explicit, one-shot; never automatic
-docker compose up -d --wait gateway      # readiness-based health check
-```
+Use the [synthetic Docker setup](docs/DEPLOYMENT.md#3-configure) for prerequisites, private secret files, UID ownership, explicit migrations and startup. It must only be run against disposable local data.
 
-The stack publishes `127.0.0.1:8000` only, runs as UID 10001 with all capabilities dropped, mounts secrets as files and never migrates on startup. Container execution has **not** been verified in this environment (no Docker daemon); `docs/DEPLOYMENT.md` records exactly which checks ran and which are blocked.
+The image and synthetic Compose smoke passed on a hosted runner at the revision recorded in [status](docs/STATUS.md); that does not establish a local sandbox, VPS, production or live Telegram deployment.
 
 ## Operations quickstart (synthetic only)
+
+Illustrative commands; configure the private synthetic database and secrets first, and replace the placeholders. Migration writes to the configured database: use only a disposable target. Run the server and subsequent client commands in separate terminals.
 
 ```sh
 python -m alembic upgrade head

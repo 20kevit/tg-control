@@ -52,7 +52,7 @@ CLI and MCP regression tests cover fully successful, mixed-success/failure, malf
 python scripts/gen_traceability.py
 ```
 
-The matrix covers 17 requirement areas and the full executed-test inventory. It proves mapping and execution, not product correctness, and deliberately contains no rows for unimplemented areas (live TDLib adapter, real AI providers, remote plugin distribution, deployment).
+The generated matrix maps requirement areas to implementation paths and test definitions. A listed test is not proof that every associated requirement was exercised; execution evidence is tied to its recorded revision. Live TDLib, real AI providers, remote plugin distribution and production deployment remain unverified or blocked.
 
 ## Interface contracts and CI gate
 
@@ -168,13 +168,14 @@ adding a profile.
 
 ## Automatic retention pruning
 
-`tests/test_retention_scheduling.py` (6 tests) pins the opt-in schedule: default
+`tests/test_retention_scheduling.py` pins the opt-in schedule: default
 disabled; policy bounds (interval 60–10080, retention 1–36500, strict types);
 never due while disabled or while the single-instance guard is lost; at most one
 run per interval with a fresh process waiting a full interval; a fully successful
 pass deletes only eligible rows (an old terminal job is removed, an equally old
 queued job is kept) and writes exactly one metadata-only audit row; a failing step
-does not stop the others and the pass is audited as a failure; diagnostics report
+does not stop the others and the pass is audited as a failure when audit storage works;
+a failed audit write is reported as a failure in diagnostics. Diagnostics report
 `state`/`interval`/`last_run_age`/`last_run_outcome` without counts.
 
 ## Deployment preflight
@@ -211,7 +212,7 @@ vulnerability.
 `.github/workflows/ci.yaml` runs two jobs. The quality job is the canonical local
 gate plus coverage and the dependency audit; the container job builds the image,
 runs `scripts/container_smoke.sh`, and inspects the image's user and environment.
-Both are green at run `42399624830`.
+Both jobs passed in [run 42454395796](https://github.com/20kevit/tg-control/actions/runs/42454395796) for commit `e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded`. The quality log records 456 passed, 1 skipped, 87.21% coverage, clean Ruff, 72 operations, 20 MCP tools, 26 CLI commands, 46 traceability test files and no known dependency vulnerabilities. The container job completed the image build, Compose validation and disposable smoke. The follow-on documentation-only sync commit requires its own CI run.
 
 ```bash
 # what the container job does (needs a Docker daemon; blocked in this sandbox)

@@ -1,19 +1,34 @@
 # Execution status
 
-Updated 2026-11-07. Branch: arena/49228e17-tg-control. Earlier dated entries below are historical evidence, not current claims.
+Updated 2026-11-08. Historical entries below record their original branch and environment; they do not verify later commits.
 
 ## Current verified snapshot
 
-The repository has moved beyond the original docs-only baseline (PR #1 merged at `07053b104257d617f5af5f56779ea2d4568410f7`, whose suite at that time passed 218 tests). Current evidence is the newest dated entry below: **454 passed, 1 skipped** (optional native TDJSON probe), Ruff clean, coverage 87.17% against an 80% floor, traceability current, 72 contract operations, and `pip-audit` reporting no known vulnerabilities in `requirements.lock`. See the dated entries below and `TESTING.md` for exact commands.
+Latest verified baseline before this documentation-only sync: `e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded` on `arena/81de801c-tg-control`. Hosted push [run 42454395796](https://github.com/20kevit/tg-control/actions/runs/42454395796) completed both quality and container jobs successfully. The quality log confirms 456 passed, 1 skipped (optional native TDJSON probe), 87.21% coverage, Ruff clean, 72 interface operations, 20 MCP tools, 26 CLI commands, traceability across 46 test files, and `pip-audit` reporting no known vulnerabilities. The container job confirms 11 deployment tests passed (2 warnings), image build, Compose validation, synthetic API smoke and the disposable container smoke all succeeded. These results apply to `e594ef6` only. This documentation-only sync creates a later commit and is not covered by that run; its own hosted CI must pass before that commit is called verified. The run emitted GitHub Actions Node.js 20 deprecation warnings, which remain a workflow-maintenance item.
 
 Implemented and exercised against synthetic data: Gateway Core; PostgreSQL models/migrations; client credential issue/rotation/revocation; independent account-scoped Read/Write/Admin policies and exclusions; synthetic discovery/search/history/message/media reads; send/edit/delete/forward/media/admin; batch preauthorization, per-item outcomes, idempotency, retry/deadline handling; authenticated HTTP API; MCP stdio and Streamable HTTP; CLI; owner Web Admin; metadata-only audit; request framing/Host/Origin controls; encrypted synthetic state/media retention; backup/restore; session monitoring; and cooperative single-instance protection.
 
-Analytical completion estimates (not repository metrics): approximately 70–75% of the synthetic prototype/foundation and 35–45% of the complete intended gateway product.
+Historical hosted run [42401029613](https://github.com/20kevit/tg-control/actions/runs/42401029613) passed both quality and container jobs at commit `59951afad2c05a7aa114d691ee7e73a026272026`; this is not evidence of a later commit, VPS, live Telegram, or production operation.
 
+
+## Hosted CI evidence for the latest verified baseline (2026-11-08)
+
+- **Revision and run**: push run `42454395796` verified commit `e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded` on `arena/81de801c-tg-control`; both workflow jobs concluded successfully.
+- **Quality job**: 456 passed, 1 skipped (optional native TDJSON probe), 87.21% coverage against the 80% floor, Ruff clean, 72 registered operations / 20 MCP tools / 26 CLI commands, traceability covering 46 test files, and `pip-audit` found no known vulnerabilities.
+- **Container job**: 11 deployment tests passed (2 warnings); image build, Compose validation, synthetic API smoke, disposable container smoke and image inspection completed successfully.
+- **Boundaries**: this is synthetic hosted-CI evidence, not local-container, VPS, production, live Telegram or real-data evidence. The follow-on documentation-only commit created by this sync still needs its own CI run. Node.js 20 deprecation warnings were emitted by the workflow and remain a maintenance item.
+
+## Documentation evidence reconciliation (2026-11-07)
+
+On working changes based on `4fd45514b0d967ef3437f3053bae50c9c3efb085`, `TG_COVERAGE=1 PYTEST_ADDOPTS='--durations=10' bash scripts/ci.sh` passed: 456 passed, 1 skipped (native TDLib library not supplied), 1 `XDG_RUNTIME_DIR` fallback warning, 87.21% coverage, Ruff clean, 72 operations and 46 test files in the traceability gate. The first attempt reached the test suite but exceeded the 360-second command wait; its final result was not captured. This local synthetic result does not establish hosted, VPS or live verification of a later commit.
+
+## Documentation and retention correction (2026-11-07)
+
+On `arena/81de801c-tg-control`, the coverage-enabled local gate `TG_COVERAGE=1 bash scripts/ci.sh` passed on the working changes: 456 passed, one optional native probe skipped, 87.21% coverage, Ruff and contract/traceability checks clean. This is not hosted or live evidence. Automatic retention now reports a failed audit-record write in process-local diagnostics; the audit row cannot be recovered if the write fails.
 
 ## First real container and hosted-CI evidence (2026-11-07)
 
-Executed on `arena/49228e17-tg-control` at `42399624830`; both jobs green. This is the first time the image was built and the container smoke test ran end to end, and it found six defects that no local check could have caught.
+Historical run `42399624830` on `arena/49228e17-tg-control`; both jobs green. The number is a workflow run ID, not a commit SHA. This is the first time the image was built and the container smoke test ran end to end, and it found six defects that no local check could have caught.
 
 - **Hosted CI is now real evidence, not a claim.** `lint, contracts, traceability, tests` (job `128484372451`) runs `scripts/ci.sh` with `TG_COVERAGE=1` plus `pip-audit` on the hash-locked runtime set; `image build, compose validation, container smoke` (job `128485217819`) builds the image, runs the disposable stack and inspects the resulting image.
 - **Defects found and fixed by that run** (each with a regression test or a static assertion):

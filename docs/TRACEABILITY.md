@@ -1,16 +1,16 @@
 # Traceability matrix
 
-This file maps requirement areas to the implementation modules and the exact executed tests that evidence them. It is verified by `tests/test_traceability.py`, which fails if a listed file or test function disappears or if a test file is missing from the matrix. Synthetic evidence proves only synthetic behavior; see `docs/ACCEPTANCE.md` for what remains open.
+This file maps requirement areas to implementation modules and associated test definitions. Associations do not establish that every requirement was tested. It is verified by `tests/test_traceability.py`, which fails if a listed file or test function disappears or if a test file is missing from the matrix. Synthetic evidence proves only synthetic behavior; see `docs/ACCEPTANCE.md` for what remains open.
 
 Regenerate with `python scripts/gen_traceability.py` after changing tests.
 
-Evidence labels: **Implemented** (code only), **Locally tested** (executed by the local gate), **Container-tested** (built image under a real runtime), **Hosted-CI-tested** (executed by the hosted workflow), **Not tested**, **Blocked** (cannot execute here; limitation recorded in STATUS.md), **Requires owner action**. Only labels backed by recorded execution appear below: no row is Container-tested or Hosted-CI-tested today.
+Evidence labels: **Implemented** (code only), **Locally tested** (executed by the local gate), **Container-tested** (built image under a real runtime), **Hosted-CI-tested** (executed by the hosted workflow), **Not tested**, **Blocked** (cannot execute here; limitation recorded in STATUS.md), **Requires owner action**. Only labels backed by recorded execution appear below. Hosted evidence is limited to the exact revision in STATUS.md.
 
-| Area | Contract | Implementation | Test files | Executed tests | Evidence |
+| Area | Contract | Implementation | Test files | Defined tests | Evidence |
 |---|---|---|---|---|---|
 | Legal / privacy gate | COMPLIANCE.md, PRD.md | `docs/COMPLIANCE.md`, `docs/PRD.md`, `docs/SECURITY.md` | `tests/test_operational_config.py` | 4 | Blocked |
 | TDLib / accounts (offline boundary) | TDLIB_OFFLINE.md | `src/tg_control/adapters/tdlib_boundary.py`, `src/tg_control/adapters/tdlib_poc.py`, `src/tg_control/adapters/tdlib_read_model.py`, `src/tg_control/adapters/tdlib_outcomes.py` | `tests/test_tdlib_boundary.py`, `tests/test_adapter.py`, `tests/test_tdlib_read_model.py`, `tests/test_tdlib_outcomes.py`, `tests/test_native_tdlib.py` | 28 | Locally tested |
-| Clients and policy | SECURITY.md, POLICY.md | `src/tg_control/auth.py`, `src/tg_control/policy.py`, `src/tg_control/core.py` | `tests/test_policy_auth.py`, `tests/test_core.py` | 27 | Locally tested |
+| Clients and policy | SECURITY.md | `src/tg_control/auth.py`, `src/tg_control/policy.py`, `src/tg_control/core.py` | `tests/test_policy_auth.py`, `tests/test_core.py` | 27 | Locally tested |
 | Read / search / history / media | API.md | `src/tg_control/core.py`, `src/tg_control/adapters/synthetic.py`, `src/tg_control/media.py` | `tests/test_core.py`, `tests/test_media.py`, `tests/test_retention.py` | 37 | Locally tested |
 | Write / admin / batch | API.md | `src/tg_control/core.py`, `src/tg_control/schemas.py` | `tests/test_adapter.py`, `tests/test_core.py` | 27 | Locally tested |
 | Commands and media pipeline | COMMANDS_MEDIA_AI_PLUGINS.md | `src/tg_control/commands.py`, `src/tg_control/media.py` | `tests/test_commands.py`, `tests/test_commands_api.py`, `tests/test_media.py` | 25 | Locally tested |
@@ -32,24 +32,24 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 | Deployment lifecycle (host process) | DEPLOYMENT.md | `scripts/runtime_smoke.py`, `src/tg_control/config.py`, `src/tg_control/healthcheck.py`, `docs/DEPLOYMENT.md` | `tests/test_runtime_lifecycle.py` | 1 | Locally tested |
 | Deployment preflight | DEPLOYMENT.md | `src/tg_control/preflight.py`, `src/tg_control/config.py`, `src/tg_control/db.py` | `tests/test_preflight.py` | 10 | Locally tested |
 | Adapter conformance | PRD.md, SECURITY.md | `src/tg_control/adapters/base.py`, `src/tg_control/adapters/synthetic.py`, `src/tg_control/adapters/tdlib_boundary.py` | `tests/test_adapter_conformance.py`, `tests/test_adapter.py` | 15 | Locally tested |
-| Scheduled retention | OPERATIONS.md, API.md | `src/tg_control/retention.py`, `src/tg_control/api.py` | `tests/test_retention_scheduling.py`, `tests/test_retention_pruning.py` | 9 | Locally tested |
+| Scheduled retention | OPERATIONS.md, API.md | `src/tg_control/retention.py`, `src/tg_control/api.py` | `tests/test_retention_scheduling.py`, `tests/test_retention_pruning.py` | 10 | Locally tested |
 | Dependency audit and coverage | TESTING.md, RELEASE_PROCESS.md | `scripts/ci.sh`, `requirements.lock`, `pyproject.toml` | `tests/test_deployment.py` | 11 | Locally tested |
 | Release metadata and provenance | RELEASE_PROCESS.md | `src/tg_control/version.py`, `scripts/build_release.py`, `docs/RELEASE_PROCESS.md` | `tests/test_deployment.py` | 11 | Locally tested |
-| Hosted CI pipeline | RELEASE_PROCESS.md | `.github/workflows/ci.yaml`, `scripts/ci.sh`, `scripts/container_smoke.sh` | `tests/test_deployment.py` | 11 | Not tested |
+| Hosted CI pipeline | RELEASE_PROCESS.md | `.github/workflows/ci.yaml`, `scripts/ci.sh`, `scripts/container_smoke.sh` | `tests/test_deployment.py` | 11 | Hosted-CI-tested |
 | Owner notification / monitoring | OPERATIONS.md | `src/tg_control/monitoring.py` | `tests/test_session_monitor.py`, `tests/test_monitor_progress.py`, `tests/test_api.py` | 28 | Locally tested |
-| Delivery / evidence | ACCEPTANCE.md, TRACEABILITY.md | `docs/TRACEABILITY.md`, `docs/ACCEPTANCE.md`, `docs/ROADMAP.md`, `scripts/gen_traceability.py` | `tests/test_traceability.py` | 6 | Locally tested |
+| Delivery / evidence | ACCEPTANCE.md, TRACEABILITY.md | `docs/TRACEABILITY.md`, `docs/ACCEPTANCE.md`, `docs/ROADMAP.md`, `scripts/gen_traceability.py` | `tests/test_traceability.py` | 7 | Locally tested |
 
-## Executed but not yet evidenced in this environment
+## Verification and remaining gaps
+
+Latest verified baseline: hosted workflow [42454395796](https://github.com/20kevit/tg-control/actions/runs/42454395796) passed quality and container jobs at commit `e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded`. Its synthetic container smoke is not VPS, production or live Telegram evidence. The documentation-only sync commit after this baseline requires its own verification; see STATUS.md.
 
 | Requirement | Contract | Status | Why |
 |---|---|---|---|
-| Container image build, in-container non-root check, container start/recreate/persistence, database-outage readiness | DEPLOYMENT.md | Blocked | No Docker/Podman/Buildah binary, no container socket and `CapEff: 0` in the development sandbox. `scripts/container_smoke.sh` is ready but unexecuted. |
-| Hosted CI run of `.github/workflows/ci.yaml` | RELEASE_PROCESS.md | Not tested | The workflow is committed and statically asserted, but no GitHub Actions run has occurred. |
 | Image/OS vulnerability scan and base-image digest pinning | RELEASE_PROCESS.md | Requires owner action | Needs registry/network access and approval. |
 | Publishing an image, GitHub release, or any deployment | RELEASE_PROCESS.md | Requires owner action | Explicitly out of scope without owner approval. |
 | Native TDLib adapter / live Telegram behavior | COMPLIANCE.md | Blocked | Compliance and owner gates unresolved. |
 
-## Executed test inventory
+## Test definition inventory
 
 ### `tests/test_adapter.py`
 
@@ -443,6 +443,7 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 - `tests/test_retention_scheduling.py::test_disabled_policy_never_runs_and_never_prunes`
 - `tests/test_retention_scheduling.py::test_runs_once_per_interval_and_only_while_the_guard_is_held`
 - `tests/test_retention_scheduling.py::test_a_failing_step_does_not_block_the_others_and_is_audited`
+- `tests/test_retention_scheduling.py::test_audit_write_failure_is_visible_in_scheduled_diagnostics`
 - `tests/test_retention_scheduling.py::test_api_auto_prune_deletes_only_eligible_rows_and_audits`
 - `tests/test_retention_scheduling.py::test_owner_enables_auto_prune_and_diagnostics_report_it`
 
@@ -513,7 +514,8 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 - `tests/test_traceability.py::test_every_test_file_is_listed`
 - `tests/test_traceability.py::test_matrix_does_not_claim_live_evidence`
 - `tests/test_traceability.py::test_every_area_row_has_an_evidence_label_and_a_contract`
-- `tests/test_traceability.py::test_unverified_container_and_ci_claims_are_not_made`
+- `tests/test_traceability.py::test_hosted_pipeline_evidence_has_revision_and_run`
+- `tests/test_traceability.py::test_markdown_local_link_targets_exist`
 
 ### `tests/test_workflows.py`
 

@@ -42,7 +42,7 @@ warning; they cannot be checked for schema compatibility.
 
 ## 3. Create
 
-The gateway must be **stopped** (or at least idle): there is no online snapshot
+The gateway and all other writers must be **stopped**: there is no online snapshot
 coordination and no cross-database transaction guarantee.
 
 ```bash
@@ -87,9 +87,9 @@ Restore refuses to overwrite an active database. It requires an empty target and
 the explicit `--confirm-empty-target` flag, and a **new** state directory:
 
 ```bash
-# 1. create a new empty database and a new state directory on a disposable host
+# 1. create a new empty database on a disposable host; the restore creates
+#    state/recovered itself, so that path must not exist
 createdb -h 127.0.0.1 -p 55432 -U tgcontrol recovered
-install -d -m 700 state/recovered
 
 # 2. restore into the new targets
 python -m tg_control.backup restore \
