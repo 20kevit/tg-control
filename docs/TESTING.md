@@ -212,7 +212,7 @@ vulnerability.
 `.github/workflows/ci.yaml` runs two jobs. The quality job is the canonical local
 gate plus coverage and the dependency audit; the container job builds the image,
 runs `scripts/container_smoke.sh`, and inspects the image's user and environment.
-Both jobs passed in [run 42403984753](https://github.com/20kevit/tg-control/actions/runs/42403984753) for commit `4fd45514b0d967ef3437f3053bae50c9c3efb085`; later commits need their own run.
+Both jobs passed in [run 42454395796](https://github.com/20kevit/tg-control/actions/runs/42454395796) for commit `e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded`. The quality log records 456 passed, 1 skipped, 87.21% coverage, clean Ruff, 72 operations, 20 MCP tools, 26 CLI commands, 46 traceability test files and no known dependency vulnerabilities. The container job completed the image build, Compose validation and disposable smoke. The follow-on documentation-only sync commit requires its own CI run.
 
 ```bash
 # what the container job does (needs a Docker daemon; blocked in this sandbox)
