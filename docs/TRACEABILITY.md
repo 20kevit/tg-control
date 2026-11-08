@@ -41,7 +41,7 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 
 ## Verification and remaining gaps
 
-Historical hosted workflow [42401029613](https://github.com/20kevit/tg-control/actions/runs/42401029613) passed quality and container jobs at commit `59951afad2c05a7aa114d691ee7e73a026272026`. Its synthetic container smoke is not VPS, production or live Telegram evidence. A subsequent commit requires its own verification; see STATUS.md.
+Historical hosted workflow [42403984753](https://github.com/20kevit/tg-control/actions/runs/42403984753) passed quality and container jobs at commit `4fd45514b0d967ef3437f3053bae50c9c3efb085`. Its synthetic container smoke is not VPS, production or live Telegram evidence. A subsequent commit requires its own verification; see STATUS.md.
 
 | Requirement | Contract | Status | Why |
 |---|---|---|---|

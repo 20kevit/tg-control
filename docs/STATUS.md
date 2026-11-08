@@ -4,12 +4,16 @@ Updated 2026-11-07. Historical entries below record their original branch and en
 
 ## Current verified snapshot
 
-The repository has moved beyond the original docs-only baseline (PR #1 merged at `07053b104257d617f5af5f56779ea2d4568410f7`, whose suite at that time passed 218 tests). Current evidence is the newest dated entry below: **454 passed, 1 skipped** (optional native TDJSON probe), Ruff clean, coverage 87.17% against an 80% floor, traceability current, 72 contract operations, and `pip-audit` reporting no known vulnerabilities in `requirements.lock`. See the dated entries below and `TESTING.md` for exact commands.
+Latest verified commit: `4fd45514b0d967ef3437f3053bae50c9c3efb085` on `arena/81de801c-tg-control`. Hosted push [run 42403984753](https://github.com/20kevit/tg-control/actions/runs/42403984753) completed both quality and container jobs successfully, including the canonical gate, dependency audit, image build and disposable Compose smoke. The run verifies that commit only, not subsequent changes. Local working-tree verification for that milestone reported 456 passed, one optional native TDJSON probe skipped, 87.21% coverage, Ruff and contract/traceability gates clean. An earlier 455-pass run preceded an additional documentation test; it is not the final count. Hosted job metadata confirms success but the detailed hosted log was unavailable in the subsequent sandbox; do not infer a hosted test count from the local result.
 
 Implemented and exercised against synthetic data: Gateway Core; PostgreSQL models/migrations; client credential issue/rotation/revocation; independent account-scoped Read/Write/Admin policies and exclusions; synthetic discovery/search/history/message/media reads; send/edit/delete/forward/media/admin; batch preauthorization, per-item outcomes, idempotency, retry/deadline handling; authenticated HTTP API; MCP stdio and Streamable HTTP; CLI; owner Web Admin; metadata-only audit; request framing/Host/Origin controls; encrypted synthetic state/media retention; backup/restore; session monitoring; and cooperative single-instance protection.
 
 Historical hosted run [42401029613](https://github.com/20kevit/tg-control/actions/runs/42401029613) passed both quality and container jobs at commit `59951afad2c05a7aa114d691ee7e73a026272026`; this is not evidence of a later commit, VPS, live Telegram, or production operation.
 
+
+## Documentation evidence reconciliation (2026-11-07)
+
+On working changes based on `4fd45514b0d967ef3437f3053bae50c9c3efb085`, `TG_COVERAGE=1 PYTEST_ADDOPTS='--durations=10' bash scripts/ci.sh` passed: 456 passed, 1 skipped (native TDLib library not supplied), 1 `XDG_RUNTIME_DIR` fallback warning, 87.21% coverage, Ruff clean, 72 operations and 46 test files in the traceability gate. The first attempt reached the test suite but exceeded the 360-second command wait; its final result was not captured. This local synthetic result does not establish hosted, VPS or live verification of a later commit.
 
 ## Documentation and retention correction (2026-11-07)
 
@@ -17,7 +21,7 @@ On `arena/81de801c-tg-control`, the coverage-enabled local gate `TG_COVERAGE=1 b
 
 ## First real container and hosted-CI evidence (2026-11-07)
 
-Executed on `arena/49228e17-tg-control` at `42399624830`; both jobs green. This is the first time the image was built and the container smoke test ran end to end, and it found six defects that no local check could have caught.
+Historical run `42399624830` on `arena/49228e17-tg-control`; both jobs green. The number is a workflow run ID, not a commit SHA. This is the first time the image was built and the container smoke test ran end to end, and it found six defects that no local check could have caught.
 
 - **Hosted CI is now real evidence, not a claim.** `lint, contracts, traceability, tests` (job `128484372451`) runs `scripts/ci.sh` with `TG_COVERAGE=1` plus `pip-audit` on the hash-locked runtime set; `image build, compose validation, container smoke` (job `128485217819`) builds the image, runs the disposable stack and inspects the resulting image.
 - **Defects found and fixed by that run** (each with a regression test or a static assertion):

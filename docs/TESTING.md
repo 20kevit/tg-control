@@ -212,7 +212,7 @@ vulnerability.
 `.github/workflows/ci.yaml` runs two jobs. The quality job is the canonical local
 gate plus coverage and the dependency audit; the container job builds the image,
 runs `scripts/container_smoke.sh`, and inspects the image's user and environment.
-Both are green at run `42399624830`.
+Both jobs passed in [run 42403984753](https://github.com/20kevit/tg-control/actions/runs/42403984753) for commit `4fd45514b0d967ef3437f3053bae50c9c3efb085`; later commits need their own run.
 
 ```bash
 # what the container job does (needs a Docker daemon; blocked in this sandbox)
