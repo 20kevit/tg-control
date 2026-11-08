@@ -75,6 +75,8 @@ Before external event delivery, define and version:
 
 MCP subscriptions, Streamable HTTP, webhooks, SSE, or WebSocket are transports, not separate business logic. All use the same authorization and event service. Do not ship a transport until auth, Origin/Host, signature, and lifecycle behavior are specified.
 
+The synthetic event schema includes account-level `story.updated`, whose payload is limited to `story_id` and `state` and whose envelope has no `chat_id`. A subscription for this event requires a current Read grant on the account; it does not bypass chat scopes or deliver story/message content. Chat-scoped events continue to require current Read authorization for their specific chat. Coverage: `tests/test_events.py::test_account_story_event_is_allowlisted_and_requires_account_read_scope`.
+
 ## 2. Durable job and scheduler model
 
 ### 2.1 Job record

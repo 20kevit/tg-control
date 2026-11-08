@@ -18,6 +18,7 @@ TG-Control is a personal-account Telegram gateway, not a Bot API bot. Its client
 | P10 | Audit, retention, security | Decisions/outcomes are recorded without content or credentials, protected by owner access; retention defaults to 90 days. |
 | P11 | Portability and recovery | PostgreSQL schema migrations, container deployment, backup and restore instructions are verified as far as the local environment allows. |
 | P12 | Legal gate | Only synthetic data is used; live adapter remains unavailable until qualified advice/permission and explicit owner approval. |
+| P13 | Synthetic feature and capability coverage | Typed feature actions and operation-level capability discovery use the shared Core/Policy path; report synthetic adapter and eligibility status separately, keep compliance/approval-gated operations disabled, and never imply live Telegram support. |
 
 ## Non-goals / constraints
 
@@ -26,4 +27,4 @@ No promise of unlimited history, media availability, atomic cross-chat writes, u
 
 ## Detailed contract references
 
-The complete requirement map and autonomy/approval policy are in [CONTRACT_INDEX.md](CONTRACT_INDEX.md). Event delivery, durable scheduling, and workflows are specified in [EVENTS_JOBS_WORKFLOWS.md](EVENTS_JOBS_WORKFLOWS.md). Reply-aware commands including /save, media transfer, provider-independent AI tasks, and plugin lifecycle are specified in [COMMANDS_MEDIA_AI_PLUGINS.md](COMMANDS_MEDIA_AI_PLUGINS.md). These contracts are required foundations; optional user-facing modules remain candidates until owner-approved.
+The complete requirement map and autonomy/approval policy are in [CONTRACT_INDEX.md](CONTRACT_INDEX.md). Event delivery, durable scheduling, and workflows are specified in [EVENTS_JOBS_WORKFLOWS.md](EVENTS_JOBS_WORKFLOWS.md). Reply-aware commands including /save, media transfer, provider-independent AI tasks, and plugin lifecycle are specified in [COMMANDS_MEDIA_AI_PLUGINS.md](COMMANDS_MEDIA_AI_PLUGINS.md). These contracts are required foundations; optional user-facing live modules remain candidates until owner-approved. Synthetic action schemas, status semantics, and hard blockers are catalogued in [FEATURE_CAPABILITIES.md](FEATURE_CAPABILITIES.md).

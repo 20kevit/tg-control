@@ -11,16 +11,17 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 | Legal / privacy gate | COMPLIANCE.md, PRD.md | `docs/COMPLIANCE.md`, `docs/PRD.md`, `docs/SECURITY.md` | `tests/test_operational_config.py` | 4 | Blocked |
 | TDLib / accounts (offline boundary) | TDLIB_OFFLINE.md | `src/tg_control/adapters/tdlib_boundary.py`, `src/tg_control/adapters/tdlib_poc.py`, `src/tg_control/adapters/tdlib_read_model.py`, `src/tg_control/adapters/tdlib_outcomes.py` | `tests/test_tdlib_boundary.py`, `tests/test_adapter.py`, `tests/test_tdlib_read_model.py`, `tests/test_tdlib_outcomes.py`, `tests/test_native_tdlib.py` | 28 | Locally tested |
 | Clients and policy | SECURITY.md | `src/tg_control/auth.py`, `src/tg_control/policy.py`, `src/tg_control/core.py` | `tests/test_policy_auth.py`, `tests/test_core.py` | 27 | Locally tested |
-| Read / search / history / media | API.md | `src/tg_control/core.py`, `src/tg_control/adapters/synthetic.py`, `src/tg_control/media.py` | `tests/test_core.py`, `tests/test_media.py`, `tests/test_retention.py` | 37 | Locally tested |
+| Read / search / history / media | API.md | `src/tg_control/core.py`, `src/tg_control/adapters/synthetic.py`, `src/tg_control/media.py` | `tests/test_core.py`, `tests/test_media.py`, `tests/test_retention.py` | 38 | Locally tested |
 | Write / admin / batch | API.md | `src/tg_control/core.py`, `src/tg_control/schemas.py` | `tests/test_adapter.py`, `tests/test_core.py` | 27 | Locally tested |
-| Commands and media pipeline | COMMANDS_MEDIA_AI_PLUGINS.md | `src/tg_control/commands.py`, `src/tg_control/media.py` | `tests/test_commands.py`, `tests/test_commands_api.py`, `tests/test_media.py` | 25 | Locally tested |
-| Events | EVENTS_JOBS_WORKFLOWS.md | `src/tg_control/events.py` | `tests/test_events.py`, `tests/test_events_jobs_api.py` | 23 | Locally tested |
+| Feature actions / capability discovery | API.md, FEATURE_CAPABILITIES.md, FEATURE_TRACEABILITY.md, PRD.md | `src/tg_control/features.py`, `src/tg_control/capabilities.py`, `src/tg_control/core.py`, `src/tg_control/adapters/synthetic.py`, `scripts/gen_feature_catalog.py`, `docs/contracts/capability_catalog.json`, `docs/FEATURE_TRACEABILITY.md` | `tests/test_features.py` | 14 | Locally tested |
+| Commands and media pipeline | COMMANDS_MEDIA_AI_PLUGINS.md | `src/tg_control/commands.py`, `src/tg_control/media.py` | `tests/test_commands.py`, `tests/test_commands_api.py`, `tests/test_media.py` | 26 | Locally tested |
+| Events | EVENTS_JOBS_WORKFLOWS.md | `src/tg_control/events.py` | `tests/test_events.py`, `tests/test_events_jobs_api.py` | 24 | Locally tested |
 | Durable jobs | EVENTS_JOBS_WORKFLOWS.md | `src/tg_control/jobs.py`, `src/tg_control/job_kinds.py` | `tests/test_jobs.py`, `tests/test_events_jobs_api.py` | 35 | Locally tested |
 | Workflows | EVENTS_JOBS_WORKFLOWS.md | `src/tg_control/workflows.py` | `tests/test_workflows.py`, `tests/test_workflows_api.py` | 16 | Locally tested |
 | AI task contract | COMMANDS_MEDIA_AI_PLUGINS.md | `src/tg_control/ai.py` | `tests/test_ai.py`, `tests/test_ai_api.py` | 12 | Locally tested |
 | Plugins | COMMANDS_MEDIA_AI_PLUGINS.md | `src/tg_control/plugins.py` | `tests/test_plugins.py`, `tests/test_plugins_api.py` | 11 | Locally tested |
-| Interfaces (HTTP/CLI/MCP/panel) | API.md, MCP.md, CLI.md | `src/tg_control/api.py`, `src/tg_control/cli.py`, `src/tg_control/mcp_server.py`, `src/tg_control/mcp_stdio.py`, `src/tg_control/static` | `tests/test_api.py`, `tests/test_cli.py`, `tests/test_mcp.py`, `tests/test_stdio_process.py`, `tests/test_browser.py` | 29 | Locally tested |
-| Audit / retention / instance guard | SECURITY.md, OPERATIONS.md | `src/tg_control/audit.py`, `src/tg_control/cache.py`, `src/tg_control/instance_guard.py`, `src/tg_control/security.py`, `src/tg_control/request_audit.py` | `tests/test_retention.py`, `tests/test_retention_pruning.py`, `tests/test_api.py`, `tests/test_operational_config.py` | 30 | Locally tested |
+| Interfaces (HTTP/CLI/MCP/panel) | API.md, MCP.md, CLI.md | `src/tg_control/api.py`, `src/tg_control/cli.py`, `src/tg_control/mcp_server.py`, `src/tg_control/mcp_stdio.py`, `src/tg_control/static` | `tests/test_api.py`, `tests/test_cli.py`, `tests/test_mcp.py`, `tests/test_stdio_process.py`, `tests/test_browser.py` | 32 | Locally tested |
+| Audit / retention / instance guard | SECURITY.md, OPERATIONS.md | `src/tg_control/audit.py`, `src/tg_control/cache.py`, `src/tg_control/instance_guard.py`, `src/tg_control/security.py`, `src/tg_control/request_audit.py` | `tests/test_retention.py`, `tests/test_retention_pruning.py`, `tests/test_api.py`, `tests/test_operational_config.py` | 32 | Locally tested |
 | Backup / recovery | BACKUP_RESTORE.md, OPERATIONS.md | `src/tg_control/backup.py`, `src/tg_control/backup_probe.py` | `tests/test_backup.py`, `tests/test_backup_catalogs.py`, `tests/test_disaster_recovery.py` | 14 | Locally tested |
 | Interface contracts (parity matrix) | CONTRACT_INDEX.md | `src/tg_control/contracts.py`, `docs/contracts/interfaces.json`, `scripts/gen_contracts.py` | `tests/test_contracts.py` | 11 | Locally tested |
 | Cursor pagination | API.md | `src/tg_control/pagination.py` | `tests/test_pagination.py` | 10 | Locally tested |
@@ -36,12 +37,12 @@ Evidence labels: **Implemented** (code only), **Locally tested** (executed by th
 | Dependency audit and coverage | TESTING.md, RELEASE_PROCESS.md | `scripts/ci.sh`, `requirements.lock`, `pyproject.toml` | `tests/test_deployment.py` | 11 | Locally tested |
 | Release metadata and provenance | RELEASE_PROCESS.md | `src/tg_control/version.py`, `scripts/build_release.py`, `docs/RELEASE_PROCESS.md` | `tests/test_deployment.py` | 11 | Locally tested |
 | Hosted CI pipeline | RELEASE_PROCESS.md | `.github/workflows/ci.yaml`, `scripts/ci.sh`, `scripts/container_smoke.sh` | `tests/test_deployment.py` | 11 | Hosted-CI-tested |
-| Owner notification / monitoring | OPERATIONS.md | `src/tg_control/monitoring.py` | `tests/test_session_monitor.py`, `tests/test_monitor_progress.py`, `tests/test_api.py` | 28 | Locally tested |
+| Owner notification / monitoring | OPERATIONS.md | `src/tg_control/monitoring.py` | `tests/test_session_monitor.py`, `tests/test_monitor_progress.py`, `tests/test_api.py` | 30 | Locally tested |
 | Delivery / evidence | ACCEPTANCE.md, TRACEABILITY.md | `docs/TRACEABILITY.md`, `docs/ACCEPTANCE.md`, `docs/ROADMAP.md`, `scripts/gen_traceability.py` | `tests/test_traceability.py` | 7 | Locally tested |
 
 ## Verification and remaining gaps
 
-Latest verified baseline: hosted workflow [42454395796](https://github.com/20kevit/tg-control/actions/runs/42454395796) passed quality and container jobs at commit `e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded`. Its synthetic container smoke is not VPS, production or live Telegram evidence. The documentation-only sync commit after this baseline requires its own verification; see STATUS.md.
+Hosted [push run 42467168708](https://github.com/20kevit/tg-control/actions/runs/42467168708) and [PR run 42467566017](https://github.com/20kevit/tg-control/actions/runs/42467566017) passed quality/dependency audit and image-build/Compose/container-smoke jobs at implementation commit `796b2d8d0817dc6f00b9170e9afe80c6549f6fc8`. Documentation evidence commit `4c1caadc5716b15e3e58affc203581591a83c9ee` also passed in [push run 42467972935](https://github.com/20kevit/tg-control/actions/runs/42467972935) and [PR run 42467977432](https://github.com/20kevit/tg-control/actions/runs/42467977432). The prior [42454395796](https://github.com/20kevit/tg-control/actions/runs/42454395796) baseline (`e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded`) is historical only. The current local run, hosted evidence and boundaries are recorded in STATUS.md; none of these runs establishes VPS, production or live Telegram behavior.
 
 | Requirement | Contract | Status | Why |
 |---|---|---|---|
@@ -107,6 +108,8 @@ Latest verified baseline: hosted workflow [42454395796](https://github.com/20kev
 
 ### `tests/test_api.py`
 
+- `tests/test_api.py::test_account_capabilities_route_is_authenticated_and_account_scoped`
+- `tests/test_api.py::test_admin_capabilities_route_is_owner_only`
 - `tests/test_api.py::test_end_to_end_auth_scopes_credential_rotation_and_revocation`
 - `tests/test_api.py::test_api_batch_preflight_and_immediate_policy_revocation`
 - `tests/test_api.py::test_input_origin_host_size_and_security_headers`
@@ -149,6 +152,7 @@ Latest verified baseline: hosted workflow [42454395796](https://github.com/20kev
 ### `tests/test_cli.py`
 
 - `tests/test_cli.py::test_cli_uses_api_and_enforces_authorization`
+- `tests/test_cli.py::test_cli_capabilities_command_uses_shared_api`
 - `tests/test_cli.py::test_cli_rejects_insecure_urls_and_absolute_request_targets`
 - `tests/test_cli.py::test_cli_returns_nonzero_for_partial_batch_and_preserves_every_item`
 - `tests/test_cli.py::test_cli_requires_complete_correlated_successful_batch_results`
@@ -235,6 +239,7 @@ Latest verified baseline: hosted workflow [42454395796](https://github.com/20kev
 ### `tests/test_events.py`
 
 - `tests/test_events.py::test_envelope_validation_rejects_malformed_and_oversized_input`
+- `tests/test_events.py::test_account_story_event_is_allowlisted_and_requires_account_read_scope`
 - `tests/test_events.py::test_ingestion_is_durable_and_deduplicated`
 - `tests/test_events.py::test_subscription_requires_read_scope_and_resolvable_chats`
 - `tests/test_events.py::test_pull_filters_and_rechecks_read_scope_before_delivery`
@@ -260,6 +265,23 @@ Latest verified baseline: hosted workflow [42454395796](https://github.com/20kev
 - `tests/test_events_jobs_api.py::test_event_ingestion_rejects_cross_account_and_unknown_chat`
 - `tests/test_events_jobs_api.py::test_settings_include_event_retention`
 - `tests/test_events_jobs_api.py::test_public_group_broad_grant_still_excluded_from_events`
+
+### `tests/test_features.py`
+
+- `tests/test_features.py::test_feature_models_are_strict_and_mutations_require_batch_idempotency`
+- `tests/test_features.py::test_synthetic_allowlist_has_a_handler_branch_for_every_operation`
+- `tests/test_features.py::test_feature_inventory_has_complete_registered_schemas_and_capabilities`
+- `tests/test_features.py::test_synthetic_message_interactions_and_media_are_isolated`
+- `tests/test_features.py::test_synthetic_groups_contacts_folders_profile_and_business_are_typed`
+- `tests/test_features.py::test_translation_remains_compliance_blocked`
+- `tests/test_features.py::test_core_keeps_read_write_admin_independent_and_preauthorizes_features`
+- `tests/test_features.py::test_paid_reactions_are_blocked_even_when_fixture_is_eligible`
+- `tests/test_features.py::test_account_level_feature_outputs_respect_chat_scopes`
+- `tests/test_features.py::test_capability_discovery_is_account_scoped_and_live_remains_blocked`
+- `tests/test_features.py::test_capability_discovery_filters_permission_and_chat_scopes`
+- `tests/test_features.py::test_capability_discovery_fails_closed_without_chat_metadata`
+- `tests/test_features.py::test_capability_discovery_rechecks_chat_policy_after_metadata_lookup`
+- `tests/test_features.py::test_capability_discovery_rechecks_client_revocation_after_profile_lookup`
 
 ### `tests/test_jobs.py`
 
@@ -304,6 +326,7 @@ Latest verified baseline: hosted workflow [42454395796](https://github.com/20kev
 - `tests/test_media.py::test_stage_verifies_checksum_and_releases`
 - `tests/test_media.py::test_untrusted_filename_and_content_type_are_validated`
 - `tests/test_media.py::test_signature_size_and_checksum_mismatches_are_rejected`
+- `tests/test_media.py::test_voice_video_and_webp_signatures_use_bounded_media_validation`
 - `tests/test_media.py::test_limits_and_quotas_are_enforced`
 - `tests/test_media.py::test_streaming_cancellation_leaves_no_partial_files`
 - `tests/test_media.py::test_guard_failure_aborts_staging_and_cleanup_expires_files`

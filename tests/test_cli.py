@@ -53,6 +53,37 @@ def test_cli_uses_api_and_enforces_authorization(api, settings, tmp_path, monkey
     assert "batch_precondition_failed" in output and client["credential"] not in output
 
 
+def test_cli_capabilities_command_uses_shared_api(api, settings, tmp_path, monkeypatch, capsys):
+    owner, account, client = create_resources(api, settings)
+    set_policy(api, owner, account, client)
+    tokenfile = tmp_path / "client-token"
+    tokenfile.write_text(client["credential"])
+    tokenfile.chmod(0o600)
+    real_class = GatewayHttpClient
+    monkeypatch.setattr(
+        cli,
+        "GatewayHttpClient",
+        lambda url, token: real_class(url, token, transport=httpx.ASGITransport(app=api.app)),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "tg-control",
+            "--token-file",
+            str(tokenfile),
+            "capabilities",
+            "--account-id",
+            account["id"],
+        ],
+    )
+    cli.main()
+    body = json.loads(capsys.readouterr().out)
+    assert body["account_id"] == account["id"]
+    assert body["live_adapter_enabled"] is False
+    assert all(item["live_status"] == "blocked_compliance" for item in body["capabilities"])
+
+
 def test_cli_rejects_insecure_urls_and_absolute_request_targets(
     api, settings, tmp_path, monkeypatch, capsys
 ):

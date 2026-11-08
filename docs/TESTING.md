@@ -44,6 +44,10 @@ CLI and MCP regression tests cover fully successful, mixed-success/failure, malf
 
 `tests/test_tdlib_boundary.py` monkeypatches `socket.socket`/`socket.create_connection` to fail and runs authorization, update intake, update draining and paginated history to prove no network path exists. It also asserts `ComplianceBlocked` for live construction even with plausible enabling environment variables, rejects real-looking fixture markers, walks every credential-bearing authorization state to `reauth_required`, rejects unknown states, closes sessions terminally, verifies duplicate/unknown/unsafe update drops, sequence ordering, buffer bounding, pagination with `before_id`, `not_found` for unknown chats, refusal of every mutation operation and the absence of a Saved Messages resolution. All fixtures are synthetic; no native library, TDLib parameter, account or live authentication is involved.
 
+## Feature actions and scoped capability discovery
+
+`tests/test_features.py` covers strict typed action schemas, schema/handler/catalogue count consistency (135 actions, 124 synthetic handlers, 147 total entries), shared Core permission separation and whole-batch preauthorization, nested chat-output filtering, paid-reaction approval refusal even when synthetic eligibility is true, compliance-blocked translation, and financial-action approval gates. Capability discovery tests exercise independent Read/Write/Admin filtering, source Read plus destination Write for `forward`, exclusion precedence, hidden rows when no accessible chat exists or chat metadata fails, no chat-ID/title disclosure, no reconnect during metadata lookup, and re-reading the current policy after an awaited adapter lookup. The full generated inventory is `docs/contracts/capability_catalog.json`; requirement/action/handler/test mappings are in `docs/FEATURE_TRACEABILITY.md`. `scripts/ci.sh` regenerates both and fails if either committed artifact is stale.
+
 ## Traceability
 
 `tests/test_traceability.py` keeps `docs/TRACEABILITY.md` honest: every referenced implementation path must exist, every listed `tests/test_*.py::test_name` must still exist, every test file must appear in the matrix, and the matrix must not contain live or production-readiness claims. Regenerate after adding, renaming or removing tests:
@@ -98,7 +102,7 @@ The script runs, in order and failing closed: `pip check`, `ruff check src tests
 ```sh
 .venv/bin/pytest -q                                  # 400 passed, 1 optional native probe skipped
 .venv/bin/ruff check src tests alembic scripts        # clean
-.venv/bin/python scripts/check_interfaces.py          # 72 operations, 20 MCP tools, 26 CLI commands
+.venv/bin/python scripts/check_interfaces.py          # 74 operations, 21 MCP tools, 27 CLI commands
 .venv/bin/python scripts/gen_traceability.py          # matrix regenerated, 4 checks pass
 ```
 
@@ -212,7 +216,7 @@ vulnerability.
 `.github/workflows/ci.yaml` runs two jobs. The quality job is the canonical local
 gate plus coverage and the dependency audit; the container job builds the image,
 runs `scripts/container_smoke.sh`, and inspects the image's user and environment.
-Both jobs passed in [run 42454395796](https://github.com/20kevit/tg-control/actions/runs/42454395796) for commit `e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded`. The quality log records 456 passed, 1 skipped, 87.21% coverage, clean Ruff, 72 operations, 20 MCP tools, 26 CLI commands, 46 traceability test files and no known dependency vulnerabilities. The container job completed the image build, Compose validation and disposable smoke. The follow-on documentation-only sync commit requires its own CI run.
+Both jobs passed in [run 42454395796](https://github.com/20kevit/tg-control/actions/runs/42454395796) for commit `e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded`. The quality log records 456 passed, 1 skipped, 87.21% coverage, clean Ruff, 72 operations, 20 MCP tools, 26 CLI commands, 46 traceability test files and no known dependency vulnerabilities. The container job completed the image build, Compose validation and disposable smoke. This is historical hosted evidence only. Current-branch local CI on evidence commit `4c1caadc5716b15e3e58affc203581591a83c9ee` (**475 passed, 1 skipped, 1 benign warning in 146.80s; 74 operations / 21 MCP tools / 27 CLI commands**, 47 test files) and hosted quality/container success for implementation commit `796b2d8d0817dc6f00b9170e9afe80c6549f6fc8` in [push run 42467168708](https://github.com/20kevit/tg-control/actions/runs/42467168708) and [PR run 42467566017](https://github.com/20kevit/tg-control/actions/runs/42467566017), plus evidence commit `4c1caadc5716b15e3e58affc203581591a83c9ee` in [push run 42467972935](https://github.com/20kevit/tg-control/actions/runs/42467972935) and [PR run 42467977432](https://github.com/20kevit/tg-control/actions/runs/42467977432), are recorded in [STATUS.md](STATUS.md). The sandbox had no local container runtime, so only hosted container evidence is claimed; none of these runs establishes live Telegram, VPS or production behavior.
 
 ```bash
 # what the container job does (needs a Docker daemon; blocked in this sandbox)

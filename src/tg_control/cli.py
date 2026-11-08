@@ -23,6 +23,7 @@ UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 # command -> (method, path template, whether a JSON body is required)
 CLIENT_COMMANDS: dict[str, tuple[str, str, bool]] = {
     "accounts": ("GET", "/v1/accounts", False),
+    "capabilities": ("GET", "/v1/accounts/{account_id}/capabilities", False),
     "execute": ("POST", "/v1/execute", True),
     "jobs": ("GET", "/v1/jobs", False),
     "jobs-create": ("POST", "/v1/jobs", True),
@@ -67,8 +68,13 @@ def _add_common(sub: argparse.ArgumentParser, name: str) -> None:
         sub.add_argument("--limit", type=int, default=25, help="page size (1-100)")
         sub.add_argument("--cursor", default=None, help="opaque cursor from a previous page")
     if name in ID_COMMANDS:
-        sub.add_argument("--job-id" if name.startswith("jobs") else "--subscription-id",
-                         required=True, help="UUID")
+        sub.add_argument(
+            "--job-id" if name.startswith("jobs") else "--subscription-id",
+            required=True,
+            help="UUID",
+        )
+    if name == "capabilities":
+        sub.add_argument("--account-id", required=True, help="explicit account UUID")
     if name == "events-pull":
         sub.add_argument("--limit", type=int, default=50, help="events per page (1-100)")
     if name == "events-ack":
@@ -139,6 +145,8 @@ def _build(args) -> tuple[str, str, dict | None]:
     path = template
     if "{job_id}" in path:
         path = path.replace("{job_id}", _uuid(args.job_id))
+    if "{account_id}" in path:
+        path = path.replace("{account_id}", _uuid(args.account_id))
     if "{subscription_id}" in path:
         path = path.replace("{subscription_id}", _uuid(args.subscription_id))
     if "{task}" in path:
@@ -186,9 +194,7 @@ def _quote(value: str) -> str:
     return quote(value, safe="-_.")
 
 
-def _response_failed(
-    status: int, response, *, method: str, path: str, body: dict | None
-) -> bool:
+def _response_failed(status: int, response, *, method: str, path: str, body: dict | None) -> bool:
     if not 200 <= status < 300:
         return True
     if isinstance(response, str):

@@ -101,6 +101,68 @@ async def test_envelope_validation_rejects_malformed_and_oversized_input(databas
         assert session.scalar(select(func.count()).select_from(EventRecord)) == 0
 
 
+async def test_account_story_event_is_allowlisted_and_requires_account_read_scope(database):
+    adapter = SyntheticAdapter()
+    service = EventService(database, adapter)
+    with database() as session:
+        account = make_account(session)
+        client, principal, _ = make_client(session)
+        grant_read(session, client, account, types=[ChatKind.PUBLIC_CHANNEL])
+
+    story_event = EventInput(
+        event_type="story.updated",
+        account_id=account.id,
+        source="adapter",
+        payload={"story_id": "synthetic-story-1", "state": "created"},
+        upstream_id="story:synthetic-story-1:created",
+    )
+    accepted = await service.ingest(story_event)
+    assert accepted["status"] == "accepted"
+    subscription = await service.create_subscription(
+        principal,
+        SubscriptionInput(
+            account_id=account.id,
+            name="account stories",
+            event_types=["story.updated"],
+        ),
+    )
+    pulled = await service.pull(principal, subscription["id"])
+    assert len(pulled["events"]) == 1
+    assert pulled["events"][0]["chat_id"] is None
+    assert pulled["events"][0]["payload"]["story_id"] == "synthetic-story-1"
+
+    with database() as session:
+        _, no_read_principal, _ = make_client(session, name="no read event client")
+    with pytest.raises(EventError) as denied:
+        await service.create_subscription(
+            no_read_principal,
+            SubscriptionInput(
+                account_id=account.id,
+                name="no read scope",
+                event_types=["story.updated"],
+            ),
+        )
+    assert denied.value.code == "denied"
+
+    with pytest.raises(EventError) as no_chat:
+        await service.ingest(
+            EventInput(
+                event_type="reaction.updated",
+                account_id=account.id,
+                source="adapter",
+                payload={"message_id": 1, "reaction": "👍", "count": 1},
+            )
+        )
+    assert no_chat.value.code == "invalid_event"
+    with pytest.raises(EventError) as extra_field:
+        await service.ingest(
+            story_event.model_copy(
+                update={"payload": {"story_id": "x", "state": "created", "raw": "no"}}
+            )
+        )
+    assert extra_field.value.code == "invalid_payload"
+
+
 async def test_ingestion_is_durable_and_deduplicated(database):
     adapter = SyntheticAdapter()
     service = EventService(database, adapter)
@@ -140,9 +202,7 @@ async def test_subscription_requires_read_scope_and_resolvable_chats(database):
     with pytest.raises(EventError) as private_chat:
         await service.create_subscription(
             principal,
-            SubscriptionInput(
-                account_id=account.id, name="private", chat_ids=["private-direct"]
-            ),
+            SubscriptionInput(account_id=account.id, name="private", chat_ids=["private-direct"]),
         )
     assert private_chat.value.code == "unknown_chat"
     created = await service.create_subscription(
@@ -222,9 +282,7 @@ async def test_pull_filters_and_rechecks_read_scope_before_delivery(database):
     with database() as session:
         grant_read(session, client, account, types=[ChatKind.PUBLIC_CHANNEL])
         session.execute(
-            update(Credential)
-            .where(Credential.id == principal.credential_id)
-            .values(revoked=True)
+            update(Credential).where(Credential.id == principal.credential_id).values(revoked=True)
         )
         session.commit()
     with pytest.raises(EventError) as revoked:
@@ -379,9 +437,9 @@ async def test_adapter_update_drain_ingests_once_and_keeps_accounts_isolated(dat
     }
     with database() as session:
         assert (
-            session.scalar(
-                select(EventRecord).where(EventRecord.account_id == account.id)
-            ).payload["message_id"]
+            session.scalar(select(EventRecord).where(EventRecord.account_id == account.id)).payload[
+                "message_id"
+            ]
             != 43
         )
 

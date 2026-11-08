@@ -413,9 +413,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
                                 await events.ingest_updates(account_id)
                     except Exception:
                         # Never log upstream text or payloads.
-                        logging.getLogger("tg_control.maintenance").error(
-                            "event ingestion failed"
-                        )
+                        logging.getLogger("tg_control.maintenance").error("event ingestion failed")
                     await asyncio.sleep(EVENT_INGEST_INTERVAL_SECONDS)
 
             async def run_scheduler() -> None:
@@ -754,9 +752,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
             ).all()
         for account_id in account_ids:
             try:
-                status = await asyncio.wait_for(
-                    gateway.adapter.status(account_id), timeout=2
-                )
+                status = await asyncio.wait_for(gateway.adapter.status(account_id), timeout=2)
             except (AdapterError, SessionUnavailable, TimeoutError):
                 adapter_failures += 1
                 continue
@@ -817,6 +813,14 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     async def list_accounts(request: Request, principal: Principal = Depends(client_principal)):
         return {"accounts": await gateway.list_accounts(principal, request.state.request_id)}
 
+    @app.get("/v1/accounts/{account_id}/capabilities")
+    async def account_capabilities(
+        account_id: UUID,
+        request: Request,
+        principal: Principal = Depends(client_principal),
+    ):
+        return await gateway.capabilities(principal, str(account_id), request.state.request_id)
+
     @app.post("/v1/execute")
     async def execute(
         request: Request, batch: Batch, principal: Principal = Depends(client_principal)
@@ -872,6 +876,13 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
             owner_audit(session, "update_account", account_id=account.id)
             session.commit()
             return {"id": account.id, "alias": account.alias, "enabled": account.enabled}
+
+    @app.get("/v1/admin/accounts/{account_id}/capabilities", dependencies=[Depends(owner)])
+    async def admin_account_capabilities(account_id: UUID, request: Request):
+        try:
+            return await gateway.admin_capabilities(str(account_id), request.state.request_id)
+        except BatchRejected as exc:
+            raise HTTPException(exc.status_code, exc.code) from None
 
     @app.get("/v1/admin/accounts/{account_id}/status", dependencies=[Depends(owner)])
     async def account_status(account_id: UUID):
@@ -1000,20 +1011,20 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
             owner_audit(session, "view_audit")
             session.commit()
             rows = [
-                    {
-                        "id": e.id,
-                        "timestamp": e.timestamp.isoformat(),
-                        "request_id": e.request_id,
-                        "actor_kind": e.actor_kind,
-                        "actor_id": e.actor_id,
-                        "event": e.event,
-                        "subject_client_id": e.subject_client_id,
-                        "account_id": e.account_id,
-                        "chat_id": e.chat_id,
-                        "decision": e.decision,
-                        "error_code": e.error_code,
-                    }
-                    for e in events
+                {
+                    "id": e.id,
+                    "timestamp": e.timestamp.isoformat(),
+                    "request_id": e.request_id,
+                    "actor_kind": e.actor_kind,
+                    "actor_id": e.actor_id,
+                    "event": e.event,
+                    "subject_client_id": e.subject_client_id,
+                    "account_id": e.account_id,
+                    "chat_id": e.chat_id,
+                    "decision": e.decision,
+                    "error_code": e.error_code,
+                }
+                for e in events
             ]
         page = page_response(
             items=rows,
@@ -1119,13 +1130,11 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
         data: EventNackRequest,
         principal: Principal = Depends(client_principal),
     ):
-        return events.nack(
-            principal, str(subscription_id), data.event_id, reason=data.reason
-        )
+        return events.nack(principal, str(subscription_id), data.event_id, reason=data.reason)
 
     @app.get("/v1/admin/events/dead-letters", dependencies=[Depends(owner)])
     async def event_dead_letters(
-        subscription_id: Annotated[str | None, Query(max_length=36)] = None
+        subscription_id: Annotated[str | None, Query(max_length=36)] = None,
     ):
         return {"dead_letters": events.dead_letters(subscription_id)}
 
@@ -1169,9 +1178,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
     # -- durable jobs ----------------------------------------------------
 
     @app.post("/v1/jobs", status_code=201)
-    async def create_job(
-        data: JobCreateRequest, principal: Principal = Depends(client_principal)
-    ):
+    async def create_job(data: JobCreateRequest, principal: Principal = Depends(client_principal)):
         return await jobs.enqueue(
             principal,
             data.kind,
@@ -1252,9 +1259,7 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
         return {"commands": commands.catalog()}
 
     @app.post("/v1/commands/save")
-    async def save_reply(
-        data: SaveRequest, principal: Principal = Depends(client_principal)
-    ):
+    async def save_reply(data: SaveRequest, principal: Principal = Depends(client_principal)):
         return await commands.invoke(
             principal,
             "save",
@@ -1300,27 +1305,19 @@ def create_app(settings: Settings, adapter: TelegramAdapter | None = None) -> Fa
 
     @app.put("/v1/admin/workflows/{workflow_id}", dependencies=[Depends(owner)])
     async def update_workflow(workflow_id: UUID, data: WorkflowInput):
-        return workflows.update(
-            str(workflow_id), data, request_id=request_id_context.get()
-        )
+        return workflows.update(str(workflow_id), data, request_id=request_id_context.get())
 
     @app.post("/v1/admin/workflows/{workflow_id}/enable", dependencies=[Depends(owner)])
     async def enable_workflow(workflow_id: UUID):
-        return workflows.set_enabled(
-            str(workflow_id), True, request_id=request_id_context.get()
-        )
+        return workflows.set_enabled(str(workflow_id), True, request_id=request_id_context.get())
 
     @app.post("/v1/admin/workflows/{workflow_id}/disable", dependencies=[Depends(owner)])
     async def disable_workflow(workflow_id: UUID):
-        return workflows.set_enabled(
-            str(workflow_id), False, request_id=request_id_context.get()
-        )
+        return workflows.set_enabled(str(workflow_id), False, request_id=request_id_context.get())
 
     @app.post("/v1/admin/workflows/{workflow_id}/run", dependencies=[Depends(owner)])
     async def run_workflow(workflow_id: UUID, data: RunRequest):
-        return await workflows.run(
-            str(workflow_id), data, request_id=request_id_context.get()
-        )
+        return await workflows.run(str(workflow_id), data, request_id=request_id_context.get())
 
     @app.get("/v1/admin/workflows/{workflow_id}/runs", dependencies=[Depends(owner)])
     async def list_workflow_runs(

@@ -24,6 +24,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .features import FEATURE_MUTATIONS, FEATURE_SPECS
+
 OWNER = "owner"
 CLIENT = "client"
 NONE = "none"
@@ -70,6 +72,10 @@ OPERATIONS: tuple[Operation, ...] = (
     # -- client plane: every operation is exposed on HTTP, MCP and CLI -----
     Operation("accounts.list", CLIENT, "Gateway.list_accounts", CORE_ERRORS,
               "GET /v1/accounts", "tg_accounts", "accounts"),
+    Operation("accounts.capabilities", CLIENT, "Gateway.capabilities",
+              (*CORE_ERRORS, "denied", "capability_unavailable"),
+              "GET /v1/accounts/{account_id}/capabilities", "tg_capabilities",
+              "capabilities"),
     Operation("actions.execute", CLIENT, "Gateway.execute", EXECUTE_ERRORS,
               "POST /v1/execute", "tg_execute", "execute"),
     Operation("jobs.create", CLIENT, "Jobs.enqueue",
@@ -153,6 +159,9 @@ OPERATIONS: tuple[Operation, ...] = (
               "PATCH /v1/admin/accounts/{account_id}", None, None),
     Operation("admin.accounts.status", OWNER, "Gateway.owner_account_status", ADMIN_ERRORS,
               "GET /v1/admin/accounts/{account_id}/status", None, None),
+    Operation("admin.accounts.capabilities", OWNER, "Gateway.admin_capabilities",
+              (*ADMIN_ERRORS, "not_found"),
+              "GET /v1/admin/accounts/{account_id}/capabilities", None, None),
     Operation("admin.accounts.reconnect", OWNER, "Gateway.owner_account_status", ADMIN_ERRORS,
               "POST /v1/admin/accounts/{account_id}/reconnect", None, None),
     Operation("admin.clients.list", OWNER, "Client query", ADMIN_ERRORS,
@@ -257,10 +266,12 @@ CORE_ACTIONS = (
     "forward",
     "set_title",
     "set_member_status",
+    *FEATURE_SPECS,
 )
 # Mutating core actions must require an idempotency key on every interface.
 MUTATING_ACTIONS = frozenset(
     {"send", "send_media", "edit", "delete", "forward", "set_title", "set_member_status"}
+    | set(FEATURE_MUTATIONS)
 )
 EXECUTE_PATH = "POST /v1/execute"
 

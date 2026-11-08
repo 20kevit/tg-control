@@ -23,6 +23,21 @@ for asset in Dockerfile .dockerignore compose.yaml .env.example .github/workflow
   [ -f "$asset" ] || { echo "missing deployment asset: $asset" >&2; exit 1; }
 done
 
+echo "== feature inventory drift =="
+FEATURE_INVENTORY_COPY="$(mktemp -d)"
+cp docs/FEATURE_TRACEABILITY.md docs/contracts/capability_catalog.json "$FEATURE_INVENTORY_COPY/"
+"$PYTHON" scripts/gen_feature_catalog.py
+if ! diff -q "$FEATURE_INVENTORY_COPY/FEATURE_TRACEABILITY.md" docs/FEATURE_TRACEABILITY.md >/dev/null \
+  || ! diff -q "$FEATURE_INVENTORY_COPY/capability_catalog.json" docs/contracts/capability_catalog.json >/dev/null; then
+  echo "feature inventory is stale; commit the regenerated catalogue and traceability matrix" >&2
+  diff -u "$FEATURE_INVENTORY_COPY/FEATURE_TRACEABILITY.md" docs/FEATURE_TRACEABILITY.md | head -40 >&2 || true
+  diff -u "$FEATURE_INVENTORY_COPY/capability_catalog.json" docs/contracts/capability_catalog.json | head -40 >&2 || true
+  rm -rf "$FEATURE_INVENTORY_COPY"
+  exit 1
+fi
+rm -rf "$FEATURE_INVENTORY_COPY"
+echo "feature inventory is current (147 capability entries, 135 feature actions)"
+
 echo "== traceability matrix =="
 "$PYTHON" - <<'PY'
 import re

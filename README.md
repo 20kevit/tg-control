@@ -9,7 +9,7 @@ The project is under active implementation. See [status](docs/STATUS.md) for imp
 
 ## Authoritative contracts
 
-Start with [the product and engineering contract index](docs/CONTRACT_INDEX.md). Detailed contracts cover [events, durable jobs and workflows](docs/EVENTS_JOBS_WORKFLOWS.md) and [commands, media, AI tasks and plugins](docs/COMMANDS_MEDIA_AI_PLUGINS.md). Arena must follow these contracts while respecting the unresolved [compliance gate](docs/COMPLIANCE.md).
+Start with [the product and engineering contract index](docs/CONTRACT_INDEX.md). Detailed contracts cover [events, durable jobs and workflows](docs/EVENTS_JOBS_WORKFLOWS.md), [commands, media, AI tasks and plugins](docs/COMMANDS_MEDIA_AI_PLUGINS.md), and the [synthetic feature and capability catalogue](docs/FEATURE_CAPABILITIES.md). Arena must follow these contracts while respecting the unresolved [compliance gate](docs/COMPLIANCE.md).
 
 ## Container quickstart (synthetic only)
 

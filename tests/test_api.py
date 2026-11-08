@@ -47,6 +47,49 @@ def execute(api, token, account, operation, chat=None, key=None, **fields):
     return api.post("/v1/execute", headers=auth(token), json=body)
 
 
+def test_account_capabilities_route_is_authenticated_and_account_scoped(api, settings):
+    owner, account, client = create_resources(api, settings)
+    route = f"/v1/accounts/{account['id']}/capabilities"
+    assert api.get(route, headers=owner).status_code == 401
+    assert api.get(route, headers=auth(client["credential"])).status_code == 403
+    set_policy(
+        api,
+        owner,
+        account,
+        client,
+        policy={"read": {"enabled": True, "allow_types": ["public_channel"]}},
+    )
+    response = api.get(route, headers=auth(client["credential"]))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["account_id"] == account["id"]
+    assert body["adapter_mode"] == "synthetic"
+    assert body["live_adapter_enabled"] is False
+    assert all(item["live_status"] == "blocked_compliance" for item in body["capabilities"])
+    assert all(item["permission"] == "read" for item in body["capabilities"])
+    operations = {item["operation"] for item in body["capabilities"]}
+    assert "get_chat_info" in operations
+    assert "send" not in operations
+    assert "set_title" not in operations
+    assert "private-group" not in str(body)
+    assert "Synthetic private group" not in str(body)
+
+
+def test_admin_capabilities_route_is_owner_only(api, settings):
+    owner, account, client = create_resources(api, settings)
+    route = f"/v1/admin/accounts/{account['id']}/capabilities"
+    assert api.get(route, headers=auth(client["credential"])).status_code == 401
+    response = api.get(route, headers=owner)
+    assert response.status_code == 200, response.text
+    assert response.json()["account_id"] == account["id"]
+    assert response.json()["live_adapter_enabled"] is False
+    assert len(response.json()["capabilities"]) == 147
+    assert any(
+        item["operation"] == "manage_star_subscription"
+        for item in response.json()["capabilities"]
+    )
+
+
 def test_end_to_end_auth_scopes_credential_rotation_and_revocation(api, settings):
     owner, account, client = create_resources(api, settings)
     token = client["credential"]
