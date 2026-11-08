@@ -47,6 +47,12 @@ SIGNATURES: dict[str, tuple[bytes, ...]] = {
     "application/pdf": (b"%PDF-",),
     "application/zip": (b"PK\x03\x04",),
     "audio/ogg": (b"OggS",),
+    "audio/mpeg": (b"ID3", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"),
+    "audio/mp4": (b"ftyp",),
+    "audio/webm": (b"\x1a\x45\xdf\xa3",),
+    "video/mp4": (b"ftyp",),
+    "video/webm": (b"\x1a\x45\xdf\xa3",),
+    "image/webp": (b"RIFF",),
 }
 MIME_PATTERN = re.compile(r"^[a-z0-9]+/[a-z0-9.+-]{1,64}$")
 CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
@@ -141,13 +147,17 @@ def _validate_content_type(value: object) -> str:
 
 def _check_signature(content_type: str, first: bytes) -> None:
     signatures = SIGNATURES.get(content_type, ())
-    if not signatures:
+    if content_type in {"audio/mp4", "video/mp4"}:
+        valid = len(first) >= 8 and first[4:8] == b"ftyp"
+    elif content_type == "image/webp":
+        valid = len(first) >= 12 and first[:4] == b"RIFF" and first[8:12] == b"WEBP"
+    elif not signatures:
         if b"\x00" in first:
             raise MediaError("invalid_media", 422)
         return
-    if not first.startswith(signatures) and not any(
-        first.startswith(signature) for signature in signatures
-    ):
+    else:
+        valid = any(first.startswith(signature) for signature in signatures)
+    if not valid:
         raise MediaError("invalid_media", 422)
 
 
@@ -287,9 +297,7 @@ class MediaPipeline:
     ) -> StagedMedia:
         safe_filename = _validate_filename(filename)
         safe_type = _validate_content_type(content_type)
-        if declared_size is not None and (
-            type(declared_size) is not int or declared_size < 0
-        ):
+        if declared_size is not None and (type(declared_size) is not int or declared_size < 0):
             raise MediaError("invalid_media", 422)
         if declared_size is not None and declared_size > self.limits.max_file_bytes:
             raise MediaError("media_too_large", 413)

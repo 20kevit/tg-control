@@ -88,6 +88,33 @@ async def test_signature_size_and_checksum_mismatches_are_rejected(tmp_path):
     assert service.account_usage(account) == 0
 
 
+async def test_voice_video_and_webp_signatures_use_bounded_media_validation(tmp_path):
+    service = pipeline(tmp_path)
+    account = str(uuid.uuid4())
+    mp4 = b"\x00\x00\x00\x18ftypisom" + b"synthetic-mp4"
+    webm = b"\x1a\x45\xdf\xa3" + b"synthetic-webm"
+    webp = b"RIFF" + b"\x00\x00\x00\x00" + b"WEBP" + b"synthetic-webp"
+    video = await service.stage(
+        account, payload(data=mp4, filename="note.mp4", content_type="video/mp4")
+    )
+    assert video.content_type == "video/mp4"
+    assert (
+        await service.stage(
+            account, payload(data=webm, filename="note.webm", content_type="audio/webm")
+        )
+    ).size == len(webm)
+    assert (
+        await service.stage(
+            account, payload(data=webp, filename="photo.webp", content_type="image/webp")
+        )
+    ).size == len(webp)
+    with pytest.raises(MediaError) as invalid_mp4:
+        await service.stage(
+            account, payload(data=TEXT, filename="fake.mp4", content_type="video/mp4")
+        )
+    assert invalid_mp4.value.code == "invalid_media"
+
+
 async def test_limits_and_quotas_are_enforced(tmp_path):
     service = pipeline(tmp_path, max_file_bytes=1024, account_bytes=2048, total_bytes=4096)
     account = str(uuid.uuid4())
@@ -110,9 +137,7 @@ async def test_streaming_cancellation_leaves_no_partial_files(tmp_path):
         raise asyncio.CancelledError
 
     with pytest.raises(asyncio.CancelledError):
-        await service.stage_stream(
-            account, "stream.txt", "text/plain", source(), declared_size=10
-        )
+        await service.stage_stream(account, "stream.txt", "text/plain", source(), declared_size=10)
     assert list((tmp_path / "media" / account).iterdir()) == []
 
 
@@ -207,7 +232,5 @@ async def test_multi_chunk_streaming_keeps_memory_bounded_and_verifies_digest(tm
         yield b"synthetic"
 
     with pytest.raises(MediaError) as mismatch:
-        await service.stage_stream(
-            account, "short.txt", "text/plain", short(), declared_size=64
-        )
+        await service.stage_stream(account, "short.txt", "text/plain", short(), declared_size=64)
     assert mismatch.value.code == "size_mismatch"

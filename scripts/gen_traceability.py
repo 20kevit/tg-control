@@ -27,6 +27,9 @@ LEVELS: dict[str, tuple[str, str]] = {
     "Clients and policy": ("SECURITY.md", "Locally tested"),
     "Read / search / history / media": ("API.md", "Locally tested"),
     "Write / admin / batch": ("API.md", "Locally tested"),
+    "Feature actions / capability discovery": (
+        "API.md, FEATURE_CAPABILITIES.md, FEATURE_TRACEABILITY.md, PRD.md", "Locally tested"
+    ),
     "Commands and media pipeline": ("COMMANDS_MEDIA_AI_PLUGINS.md", "Locally tested"),
     "Events": ("EVENTS_JOBS_WORKFLOWS.md", "Locally tested"),
     "Durable jobs": ("EVENTS_JOBS_WORKFLOWS.md", "Locally tested"),
@@ -70,6 +73,19 @@ AREAS: list[tuple[str, list[str], list[str]]] = [
      ["tests/test_core.py", "tests/test_media.py", "tests/test_retention.py"]),
     ("Write / admin / batch", ["src/tg_control/core.py", "src/tg_control/schemas.py"],
      ["tests/test_adapter.py", "tests/test_core.py"]),
+    (
+        "Feature actions / capability discovery",
+        [
+            "src/tg_control/features.py",
+            "src/tg_control/capabilities.py",
+            "src/tg_control/core.py",
+            "src/tg_control/adapters/synthetic.py",
+            "scripts/gen_feature_catalog.py",
+            "docs/contracts/capability_catalog.json",
+            "docs/FEATURE_TRACEABILITY.md",
+        ],
+        ["tests/test_features.py"],
+    ),
     ("Commands and media pipeline", ["src/tg_control/commands.py", "src/tg_control/media.py"],
      ["tests/test_commands.py", "tests/test_commands_api.py", "tests/test_media.py"]),
     ("Events", ["src/tg_control/events.py"],
@@ -218,11 +234,12 @@ def main() -> None:
         "",
         "## Verification and remaining gaps",
         "",
-        "Latest verified baseline: hosted workflow [42454395796]"
+        "Last recorded hosted baseline: workflow [42454395796] "
         "(https://github.com/20kevit/tg-control/actions/runs/42454395796) "
         "passed quality and container jobs at commit `e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded`. "
-        "Its synthetic container smoke is not VPS, production or live Telegram evidence. "
-        "The documentation-only sync commit after this baseline requires its own verification; see STATUS.md.",
+        "That historical synthetic container smoke is not evidence for the current branch, "
+        "VPS, production or live Telegram. Current local synthetic CI evidence is in STATUS.md; "
+        "this working branch still requires hosted verification.",
         "",
         "| Requirement | Contract | Status | Why |",
         "|---|---|---|---|",

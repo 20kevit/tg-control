@@ -52,6 +52,22 @@ def test_mcp_streamable_http_auth_tools_scope_and_revocation(api, settings):
     accounts = rpc(api, token, "tools/call", {"name": "tg_accounts", "arguments": {}})
     assert accounts.status_code == 200, accounts.text
     assert accounts.json()["result"]["structuredContent"]["accounts"][0]["id"] == account["id"]
+    capabilities = rpc(
+        api,
+        token,
+        "tools/call",
+        {
+            "name": "tg_capabilities",
+            "arguments": {"account_id": account["id"]},
+        },
+    )
+    assert capabilities.status_code == 200, capabilities.text
+    capability_result = capabilities.json()["result"]["structuredContent"]
+    assert capability_result["adapter_mode"] == "synthetic"
+    assert capability_result["live_adapter_enabled"] is False
+    assert all(
+        item["live_status"] == "blocked_compliance" for item in capability_result["capabilities"]
+    )
     denied = rpc(
         api,
         token,

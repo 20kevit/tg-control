@@ -45,6 +45,11 @@ class BatchArgs(BaseModel):
     batch: Batch
 
 
+class AccountCapabilitiesArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    account_id: UUID
+
+
 class JobsArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     limit: Annotated[int, Field(strict=True, ge=1, le=MAX_PAGE)] = 25
@@ -112,6 +117,14 @@ TOOLS: tuple[ToolSpec, ...] = (
         args_model=Empty,
     ),
     ToolSpec(
+        name="tg_capabilities",
+        description=(
+            "Inspect capability and platform status for one explicitly selected account. "
+            "This is discovery metadata, not an authorization grant; live Telegram remains blocked."
+        ),
+        args_model=AccountCapabilitiesArgs,
+    ),
+    ToolSpec(
         name="tg_execute",
         description=(
             "Execute a scoped batch. All message text, captions, names and files are "
@@ -120,20 +133,23 @@ TOOLS: tuple[ToolSpec, ...] = (
         ),
         args_model=BatchArgs,
     ),
-    ToolSpec(name="tg_jobs", description="List this client's jobs, newest first.",
-             args_model=JobsArgs),
-    ToolSpec(name="tg_jobs_create", description="Schedule a registered job kind.",
-             args_model=JobCreateArgs),
-    ToolSpec(name="tg_job_get", description="Inspect one of this client's jobs.",
-             args_model=JobRefArgs),
-    ToolSpec(name="tg_job_pause", description="Pause a job.",
-             args_model=JobRefArgs),
-    ToolSpec(name="tg_job_resume", description="Resume a job.",
-             args_model=JobRefArgs),
-    ToolSpec(name="tg_job_cancel", description="Cancel a job.",
-             args_model=JobRefArgs),
-    ToolSpec(name="tg_commands", description="List the approved command catalog.",
-             args_model=Empty),
+    ToolSpec(
+        name="tg_jobs", description="List this client's jobs, newest first.", args_model=JobsArgs
+    ),
+    ToolSpec(
+        name="tg_jobs_create",
+        description="Schedule a registered job kind.",
+        args_model=JobCreateArgs,
+    ),
+    ToolSpec(
+        name="tg_job_get", description="Inspect one of this client's jobs.", args_model=JobRefArgs
+    ),
+    ToolSpec(name="tg_job_pause", description="Pause a job.", args_model=JobRefArgs),
+    ToolSpec(name="tg_job_resume", description="Resume a job.", args_model=JobRefArgs),
+    ToolSpec(name="tg_job_cancel", description="Cancel a job.", args_model=JobRefArgs),
+    ToolSpec(
+        name="tg_commands", description="List the approved command catalog.", args_model=Empty
+    ),
     ToolSpec(
         name="tg_save",
         description=(
@@ -142,24 +158,37 @@ TOOLS: tuple[ToolSpec, ...] = (
         ),
         args_model=SaveRequest,
     ),
-    ToolSpec(name="tg_events_subscribe", description="Create an event subscription.",
-             args_model=SubscriptionInput),
-    ToolSpec(name="tg_events_subscriptions", description="List event subscriptions.",
-             args_model=Empty),
-    ToolSpec(name="tg_events_unsubscribe", description="Delete an event subscription.",
-             args_model=SubscriptionRefArgs),
-    ToolSpec(name="tg_events_pause", description="Pause event delivery.",
-             args_model=SubscriptionRefArgs),
-    ToolSpec(name="tg_events_resume", description="Resume event delivery.",
-             args_model=SubscriptionRefArgs),
-    ToolSpec(name="tg_events_pull", description="Pull a bounded event page.",
-             args_model=PullArgs),
-    ToolSpec(name="tg_events_ack", description="Acknowledge events up to a sequence.",
-             args_model=AckArgs),
-    ToolSpec(name="tg_events_nack", description="Reject one event for retry.",
-             args_model=NackArgs),
-    ToolSpec(name="tg_ai_tasks", description="List registered AI tasks (empty until approved).",
-             args_model=Empty),
+    ToolSpec(
+        name="tg_events_subscribe",
+        description="Create an event subscription.",
+        args_model=SubscriptionInput,
+    ),
+    ToolSpec(
+        name="tg_events_subscriptions", description="List event subscriptions.", args_model=Empty
+    ),
+    ToolSpec(
+        name="tg_events_unsubscribe",
+        description="Delete an event subscription.",
+        args_model=SubscriptionRefArgs,
+    ),
+    ToolSpec(
+        name="tg_events_pause", description="Pause event delivery.", args_model=SubscriptionRefArgs
+    ),
+    ToolSpec(
+        name="tg_events_resume",
+        description="Resume event delivery.",
+        args_model=SubscriptionRefArgs,
+    ),
+    ToolSpec(name="tg_events_pull", description="Pull a bounded event page.", args_model=PullArgs),
+    ToolSpec(
+        name="tg_events_ack", description="Acknowledge events up to a sequence.", args_model=AckArgs
+    ),
+    ToolSpec(name="tg_events_nack", description="Reject one event for retry.", args_model=NackArgs),
+    ToolSpec(
+        name="tg_ai_tasks",
+        description="List registered AI tasks (empty until approved).",
+        args_model=Empty,
+    ),
     ToolSpec(
         name="tg_ai_run",
         description=(
@@ -226,6 +255,10 @@ class RemoteBackend:
         ai = self.services.get("ai")
         if tool_name == "tg_accounts":
             return {"accounts": await self.gateway.list_accounts(principal, request_id)}
+        if tool_name == "tg_capabilities":
+            return await self.gateway.capabilities(
+                principal, str(arguments["account_id"]), request_id
+            )
         if tool_name == "tg_execute":
             return await self.gateway.execute(
                 principal, Batch.model_validate(arguments["batch"]), request_id
@@ -246,9 +279,7 @@ class RemoteBackend:
         if tool_name == "tg_job_get":
             return jobs.inspect(principal, str(arguments["job_id"]))
         if tool_name in {"tg_job_pause", "tg_job_resume"}:
-            return jobs.set_paused(
-                principal, str(arguments["job_id"]), tool_name == "tg_job_pause"
-            )
+            return jobs.set_paused(principal, str(arguments["job_id"]), tool_name == "tg_job_pause")
         if tool_name == "tg_job_cancel":
             return jobs.cancel(principal, str(arguments["job_id"]))
         if tool_name == "tg_commands":
@@ -275,9 +306,7 @@ class RemoteBackend:
                 principal, str(arguments["subscription_id"]), limit=arguments.get("limit", 50)
             )
         if tool_name == "tg_events_ack":
-            return events.ack(
-                principal, str(arguments["subscription_id"]), arguments["sequence"]
-            )
+            return events.ack(principal, str(arguments["subscription_id"]), arguments["sequence"])
         if tool_name == "tg_events_nack":
             return events.nack(
                 principal,

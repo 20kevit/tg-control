@@ -6,7 +6,24 @@ The intended HTTP API authenticates each request with a per-client Bearer creden
 
 A validated batch has `actions` and, when any action mutates state, a client-generated UUID `idempotency_key`. The key is reserved durably before effects; reuse by the same client is rejected rather than replayed. Never retry an unknown result with a new key until reconciled. All targets are pre-authorized; a single denial prevents the entire batch from running. Once execution begins, outcomes are per item and are not atomic.
 
-Implemented synthetic operations: `list_chats`, `search` (account-wide or within an explicitly selected chat), `history`, `get_message`, `get_media`, `send`, `edit`, `delete`, `forward`, `send_media`, `set_title`, and `set_member_status`. Each action explicitly contains `account_id`; all except account-wide list/search also contain `chat_id`. Forward additionally names `source_chat_id` and requires source Read plus destination Write in the same account. History pages are at most 100 (the documented TDLib page maximum), and report that history is not complete. A JSON request-size limit and 1 MiB synthetic media limit are resource-exhaustion protections, not Telegram product limits.
+The base synthetic operations are `list_chats`, `search` (account-wide or within an explicitly selected chat), `history`, `get_message`, `get_media`, `send`, `edit`, `delete`, `forward`, `send_media`, `set_title`, and `set_member_status`. A further 135 typed feature actions share the same `Batch` and Gateway Core contract; 124 have synthetic adapter handlers, while unsupported, eligibility-gated, compliance-blocked, and approval-required rows remain explicit. Each feature action uses `operation` plus a strict, operation-specific `params` object. Each action explicitly contains `account_id`; chat-scoped actions also contain `chat_id`. Account-level actions do not accept a caller-provided chat ID. Forward additionally names `source_chat_id` and requires source Read plus destination Write in the same account. History pages are at most 100 (the documented TDLib page maximum), and report that history is not complete. A JSON request-size limit and 1 MiB synthetic media limit are resource-exhaustion protections, not Telegram product limits.
+
+A feature action uses a discriminated `operation` and strict `params` model, for example:
+
+```json
+{
+  "actions": [
+    {
+      "account_id": "<account-uuid>",
+      "operation": "get_chat_info",
+      "chat_id": "public-channel",
+      "params": {}
+    }
+  ]
+}
+```
+
+See [FEATURE_CAPABILITIES.md](FEATURE_CAPABILITIES.md) for the groups, status vocabulary and safety boundary; [the generated catalogue](contracts/capability_catalog.json) publishes all 147 entries, and [FEATURE_TRACEABILITY.md](FEATURE_TRACEABILITY.md) maps all 135 feature actions to requirements, handlers and tests. Client capability discovery is permission- and accessible-chat-filtered (including additional permissions such as Read + Write for `forward`); unavailable chat metadata hides chat-scoped rows. The owner-only endpoint retains the full catalogue. Synthetic fixture support is not live Telegram capability.
 
 A 200 batch response does not imply every item succeeded. The CLI and MCP check that each requested action has a correlated, well-formed item outcome; the CLI exits nonzero and MCP marks the tool result as an error if any item failed. Valid partial results are retained. An invalid/missing mutation outcome must be reconciled, not blindly retried.
 
@@ -17,6 +34,8 @@ Rates: the adapter must only report `RateLimited` or `SessionUnavailable` when t
 - `GET /health/live`, `GET /health/ready`: owner credential required; content-free health status. Liveness also depends on writing the mandatory request-start audit record; readiness additionally checks database connectivity. Both fail closed when audit storage is unavailable.
 - `GET /openapi.json`: any currently active owner or client credential; no client-supplied role claims are trusted.
 - `GET /v1/accounts`: client credential; returns only assigned accounts with at least one enabled permission. This is metadata discovery, not a Telegram content operation.
+- `GET /v1/accounts/{account_id}/capabilities`: client credential; returns descriptive capability/eligibility metadata only for operations permitted by the client's current independent Read/Write/Admin scopes and actual accessible chat metadata. Missing, invalid or failed chat metadata hides chat-scoped rows. No chat IDs/titles/content are returned; Core rechecks active credentials and current scopes after the metadata lookups. This endpoint never reconnects or grants permission.
+- `GET /v1/admin/accounts/{account_id}/capabilities`: owner credential only; shows the full account capability catalogue in the Admin UI. This owner surface is not exposed as an MCP tool.
 - `POST /v1/execute`: client credential; JSON `{"actions": [...], "idempotency_key": "<UUID>"}`. Each action has `account_id`, `operation` and the operation-specific fields described by OpenAPI. A mutation batch requires a fresh UUID. A preauthorization failure returns 403/503 with per-item decisions and **no** effects; an already-used key returns 409. Once execution begins HTTP 200 contains individual success/failure results.
 - Owner-only: `GET/POST /v1/admin/accounts`, `PATCH /v1/admin/accounts/{account_id}`, `GET .../status`, `POST .../reconnect`; `GET/POST /v1/admin/clients`, `POST .../{client_id}/rotate`, `POST .../{client_id}/revoke`; `GET/PUT /v1/admin/clients/{client_id}/accounts/{account_id}/policy`; `GET /v1/admin/audit`; `GET /v1/admin/session-monitor`; `GET /v1/admin/storage-status`; `GET/PUT /v1/admin/settings`; `POST /v1/admin/maintenance/prune-audit`.
 

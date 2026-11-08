@@ -9,6 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .features import FEATURE_ACTION_MODELS, FEATURE_MUTATIONS
 from .policy import ChatId
 
 MessageId = Annotated[int, Field(strict=True, ge=1)]
@@ -50,6 +51,9 @@ class Send(ActionBase):
     operation: Literal["send"]
     chat_id: ChatId
     text: Annotated[str, Field(min_length=1, max_length=16384)]
+    reply_to_message_id: MessageId | None = None
+    quote_text: Annotated[str, Field(max_length=4096)] | None = None
+    message_effect_id: Annotated[str, Field(min_length=1, max_length=64)] | None = None
 
 
 class Media(BaseModel):
@@ -110,23 +114,25 @@ class SetMemberStatus(ActionBase):
     status: Literal["member", "restricted", "banned", "administrator"]
 
 
-Action = Annotated[
-    Union[
-        ListChats,
-        Search,
-        History,
-        GetMessage,
-        Send,
-        SendMedia,
-        Edit,
-        Delete,
-        Forward,
-        SetTitle,
-        SetMemberStatus,
-    ],
-    Field(discriminator="operation"),
-]
-MUTATIONS = {"send", "send_media", "edit", "delete", "forward", "set_title", "set_member_status"}
+_ACTION_MODELS = (
+    ListChats,
+    Search,
+    History,
+    GetMessage,
+    Send,
+    SendMedia,
+    Edit,
+    Delete,
+    Forward,
+    SetTitle,
+    SetMemberStatus,
+    *FEATURE_ACTION_MODELS.values(),
+)
+Action = Annotated[Union[_ACTION_MODELS], Field(discriminator="operation")]
+MUTATIONS = frozenset(
+    {"send", "send_media", "edit", "delete", "forward", "set_title", "set_member_status"}
+    | set(FEATURE_MUTATIONS)
+)
 
 
 class Batch(BaseModel):

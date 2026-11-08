@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 import uuid
 from dataclasses import asdict
@@ -16,6 +17,7 @@ from . import audit
 from .adapters.base import (
     AdapterError,
     Chat,
+    ChatKind,
     RateLimited,
     SessionStatus,
     SessionUnavailable,
@@ -25,7 +27,9 @@ from .adapters.base import (
 )
 from .auth import Principal, is_active
 from .cache import ReadCache
+from .capabilities import capability_catalog, visible_operations_for_scopes
 from .db import Account, ExecutionKey, Grant, Setting
+from .features import FEATURE_SPECS
 from .policy import Permission, Scope, get_scope
 from .schemas import MUTATIONS, Action, Batch, Forward, ListChats, Search
 
@@ -188,6 +192,9 @@ class Gateway:
 
     @staticmethod
     def _permission(action: Action) -> Permission:
+        feature = FEATURE_SPECS.get(action.operation)
+        if feature is not None:
+            return feature.permission
         if action.operation in {"set_title", "set_member_status"}:
             return Permission.ADMIN
         if action.operation in MUTATIONS:
@@ -223,6 +230,33 @@ class Gateway:
                 or not source_scope.allows(source)
             ):
                 return False, "denied"
+        related_chats: list[tuple[Chat, Permission]] = []
+        related_ids: list[tuple[str, Permission]] = []
+        params_model = getattr(action, "params", None)
+        if action.operation == "save_chat_folder" and params_model is not None:
+            params = params_model.model_dump()
+            related_ids.extend(
+                (chat_id, Permission.WRITE)
+                for chat_id in (*params.get("chat_ids", []), *params.get("excluded_chat_ids", []))
+            )
+        elif action.operation == "update_profile_details" and params_model is not None:
+            channel_id = params_model.personal_channel_id
+            if channel_id:
+                related_ids.append((channel_id, Permission.READ))
+        for related_id, permission in related_ids:
+            related_chat = await self._call(
+                account_id,
+                lambda related_id=related_id: self.adapter.get_chat(account_id, related_id),
+            )
+            related_scope = get_scope(session, principal.client_id, account_id, permission)
+            if (
+                related_chat is None
+                or related_chat.id != related_id
+                or related_scope is None
+                or not related_scope.allows(related_chat)
+            ):
+                return False, "denied"
+            related_chats.append((related_chat, permission))
         # Adapter lookups above may have awaited while an owner revoked access.
         # Refresh credentials and both scopes after the final await, before approval.
         if not is_active(session, principal):
@@ -233,6 +267,10 @@ class Gateway:
         if isinstance(action, Forward):
             source_scope = get_scope(session, principal.client_id, account_id, Permission.READ)
             if source is None or source_scope is None or not source_scope.allows(source):
+                return False, "denied"
+        for related_chat, permission in related_chats:
+            related_scope = get_scope(session, principal.client_id, account_id, permission)
+            if related_scope is None or not related_scope.allows(related_chat):
                 return False, "denied"
         return True, None
 
@@ -294,6 +332,150 @@ class Gateway:
             session.commit()
             return [{"id": a.id, "alias": a.alias} for a in visible]
 
+    async def capabilities(
+        self, principal: Principal, account_id: str, request_id: str | None = None
+    ) -> dict[str, Any]:
+        """Describe only operations available under this client's current scopes."""
+        request_id = request_id or str(uuid.uuid4())
+        with self.sessions() as session:
+            if not is_active(session, principal):
+                raise BatchRejected(401, [], "credential_revoked")
+            scopes = {
+                permission: get_scope(session, principal.client_id, account_id, permission)
+                for permission in Permission
+            }
+            if not any(scopes.values()):
+                raise BatchRejected(403, [], "denied")
+            audit.record(
+                session,
+                request_id=request_id,
+                actor_kind="client",
+                actor_id=principal.client_id,
+                event="capabilities.list",
+                account_id=account_id,
+                decision="allowed",
+            )
+            session.commit()
+
+        # These optional adapter hooks expose only eligibility/chat metadata. Do
+        # not route them through _call: capability discovery must never reconnect
+        # a session. Missing, malformed, or unavailable chat metadata fails closed.
+        async def metadata_lookup(method: Any) -> Any:
+            if not callable(method):
+                return None
+            try:
+                return await asyncio.wait_for(method(account_id), timeout=self.timeout_seconds)
+            except Exception:
+                return None
+
+        profile_method = getattr(self.adapter, "capability_profile", None)
+        chats_method = getattr(self.adapter, "capability_chats", None)
+        profile_candidate, chats_candidate = await asyncio.gather(
+            metadata_lookup(profile_method), metadata_lookup(chats_method)
+        )
+        profile = (
+            {
+                key: value
+                for key, value in profile_candidate.items()
+                if isinstance(key, str) and type(value) is bool
+            }
+            if isinstance(profile_candidate, dict)
+            else {}
+        )
+        chats: list[Chat] = []
+        if isinstance(chats_candidate, list):
+            by_id: dict[str, Chat] = {}
+            for chat in chats_candidate:
+                if (
+                    not isinstance(chat, Chat)
+                    or type(chat.id) is not str
+                    or re.fullmatch(r"[A-Za-z0-9_-]{1,128}", chat.id) is None
+                    or not isinstance(chat.kind, ChatKind)
+                ):
+                    by_id.clear()
+                    break
+                previous = by_id.get(chat.id)
+                if previous is not None and previous.kind != chat.kind:
+                    by_id.clear()
+                    break
+                # Titles and any other chat content are deliberately discarded.
+                by_id[chat.id] = Chat(chat.id, chat.kind, "")
+            chats = list(by_id.values())
+
+        with self.sessions() as session:
+            active = is_active(session, principal)
+            current_scopes = {
+                permission: get_scope(session, principal.client_id, account_id, permission)
+                for permission in Permission
+            }
+            assigned = active and any(current_scopes.values())
+            if not assigned:
+                error = "denied" if active else "credential_revoked"
+                audit.record(
+                    session,
+                    request_id=request_id,
+                    actor_kind="client",
+                    actor_id=principal.client_id,
+                    event="capabilities.list",
+                    account_id=account_id,
+                    decision="denied",
+                    error_code=error,
+                )
+                session.commit()
+                raise BatchRejected(403 if active else 401, [], error)
+            visible_operations = visible_operations_for_scopes(current_scopes, chats)
+            audit.record(
+                session,
+                request_id=request_id,
+                actor_kind="client",
+                actor_id=principal.client_id,
+                event="capabilities.list",
+                account_id=account_id,
+                decision="success",
+            )
+            session.commit()
+        return capability_catalog(
+            account_id,
+            eligibility=profile,
+            visible_operations=visible_operations,
+        )
+
+    async def admin_capabilities(
+        self, account_id: str, request_id: str | None = None
+    ) -> dict[str, Any]:
+        """Owner-only capability view; reports synthetic eligibility only."""
+        request_id = request_id or str(uuid.uuid4())
+        with self.sessions() as session:
+            account = session.get(Account, account_id)
+            if account is None:
+                raise BatchRejected(404, [], "not_found")
+            audit.record(
+                session,
+                request_id=request_id,
+                actor_kind="owner",
+                actor_id=None,
+                event="admin.capabilities.list",
+                account_id=account_id,
+                decision="allowed",
+            )
+            session.commit()
+        profile: dict[str, bool] = {}
+        capability_profile = getattr(self.adapter, "capability_profile", None)
+        if callable(capability_profile):
+            try:
+                candidate = await asyncio.wait_for(
+                    capability_profile(account_id), timeout=self.timeout_seconds
+                )
+            except Exception:
+                candidate = None
+            if isinstance(candidate, dict):
+                profile = {
+                    key: value
+                    for key, value in candidate.items()
+                    if isinstance(key, str) and type(value) is bool
+                }
+        return capability_catalog(account_id, eligibility=profile)
+
     async def preauthorize(
         self, principal: Principal, batch: Batch, request_id: str | None = None
     ) -> list[dict]:
@@ -317,9 +499,7 @@ class Gateway:
                 except Exception:
                     allowed, error = False, "adapter_failure"
                 self._record_decision(session, principal, request_id, action, allowed, error)
-                results.append(
-                    {"operation": action.operation, "allowed": allowed, "error": error}
-                )
+                results.append({"operation": action.operation, "allowed": allowed, "error": error})
             session.commit()
             return results
 
@@ -477,6 +657,23 @@ class Gateway:
                 needed.update((account_id, chat["id"]) for chat in item["data"]["chats"])
             elif isinstance(action, Search):
                 needed.update((account_id, chat["chat_id"]) for chat in item["data"]["chats"])
+            elif action.operation == "list_discussion_eligible_chats":
+                needed.update((account_id, chat["chat_id"]) for chat in item["data"]["chats"])
+            elif action.operation == "get_profile":
+                channel_id = item["data"].get("profile", {}).get("personal_channel_id")
+                if channel_id:
+                    needed.add((account_id, channel_id))
+            elif action.operation == "list_chat_folders":
+                for folder in item["data"]["folders"]:
+                    needed.update(
+                        (account_id, related_id)
+                        for related_id in (
+                            *folder.get("chat_ids", []),
+                            *folder.get("excluded_chat_ids", []),
+                        )
+                    )
+            elif action.operation == "get_discussion" and item["data"].get("chat_id"):
+                needed.add((account_id, item["data"]["chat_id"]))
         resolved: dict[tuple[str, str], Chat | None] = {}
         errors: dict[tuple[str, str], str] = {}
         for account_id, chat_id in needed:
@@ -495,7 +692,7 @@ class Gateway:
             account_id = str(action.account_id)
             active = is_active(session, principal)
             scope = (
-                get_scope(session, principal.client_id, account_id, Permission.READ)
+                get_scope(session, principal.client_id, account_id, self._permission(action))
                 if active
                 else None
             )
@@ -505,7 +702,10 @@ class Gateway:
                 key = (account_id, chat_id)
                 chat = resolved.get(key)
                 error = errors.get(key) or (None if chat and scope.allows(chat) else "denied")
-            elif error is None and isinstance(action, (ListChats, Search)):
+            elif error is None and (
+                isinstance(action, (ListChats, Search))
+                or action.operation == "list_discussion_eligible_chats"
+            ):
                 chat_key = "id" if isinstance(action, ListChats) else "chat_id"
                 candidates = item["data"]["chats"]
                 failure = next(
@@ -537,6 +737,65 @@ class Gateway:
                         if allowed:
                             visible.append(candidate)
                     item["data"]["chats"] = visible
+            elif error is None and action.operation == "list_chat_folders":
+                for folder in item["data"]["folders"]:
+                    for key in ("chat_ids", "excluded_chat_ids"):
+                        visible_ids = []
+                        for related_id in folder.get(key, []):
+                            trusted = resolved.get((account_id, related_id))
+                            allowed = bool(trusted and scope.allows(trusted))
+                            audit.record(
+                                session,
+                                request_id=request_id,
+                                actor_kind="client",
+                                actor_id=principal.client_id,
+                                event="delivery_scope",
+                                account_id=account_id,
+                                chat_id=related_id,
+                                decision="allowed" if allowed else "denied",
+                                error_code=None if allowed else "denied",
+                            )
+                            if allowed:
+                                visible_ids.append(related_id)
+                        folder[key] = visible_ids
+            elif error is None and action.operation == "get_profile":
+                profile = item["data"].get("profile", {})
+                channel_id = profile.get("personal_channel_id")
+                if channel_id:
+                    trusted = resolved.get((account_id, channel_id))
+                    allowed = bool(trusted and scope.allows(trusted))
+                    audit.record(
+                        session,
+                        request_id=request_id,
+                        actor_kind="client",
+                        actor_id=principal.client_id,
+                        event="delivery_scope",
+                        account_id=account_id,
+                        chat_id=channel_id,
+                        decision="allowed" if allowed else "denied",
+                        error_code=None if allowed else "denied",
+                    )
+                    if not allowed:
+                        profile["personal_channel_id"] = None
+            if error is None and action.operation == "get_discussion":
+                target_id = item["data"].get("chat_id")
+                if target_id:
+                    trusted = resolved.get((account_id, target_id))
+                    allowed = bool(trusted and scope.allows(trusted))
+                    audit.record(
+                        session,
+                        request_id=request_id,
+                        actor_kind="client",
+                        actor_id=principal.client_id,
+                        event="delivery_scope",
+                        account_id=account_id,
+                        chat_id=target_id,
+                        decision="allowed" if allowed else "denied",
+                        error_code=None if allowed else "denied",
+                    )
+                    if not allowed:
+                        item["data"]["chat_id"] = None
+                        item["data"]["available"] = False
             if error:
                 item.pop("data", None)
                 item.update(status="failure", error=error, outcome_unknown=False)
@@ -640,17 +899,20 @@ class Gateway:
                 results.append({"chat_id": chat.id, **result})
             return {"chats": results, "history_complete": False, "sync_state": "synthetic"}
         params = action.model_dump(exclude={"operation", "account_id", "chat_id"})
+        chat_id = getattr(action, "chat_id", None)
         if action.operation in {"history", "search", "get_message"}:
-            return await self._read_cached(
-                account_id, action.operation, action.chat_id, params, guard
-            )
+            return await self._read_cached(account_id, action.operation, chat_id, params, guard)
         mutation = action.operation in MUTATIONS
         if mutation:
             self._cache.invalidate(account_id)
+        # Account-level operations have no caller-selected chat target. A private
+        # sentinel is used only inside the adapter boundary; it is never resolved
+        # as a Telegram chat or returned to the client.
+        adapter_chat_id = chat_id or "__account__"
         try:
             return await self._call(
                 account_id,
-                lambda: self.adapter.execute(account_id, action.operation, action.chat_id, params),
+                lambda: self.adapter.execute(account_id, action.operation, adapter_chat_id, params),
                 mutation=mutation,
                 before_retry=guard,
             )

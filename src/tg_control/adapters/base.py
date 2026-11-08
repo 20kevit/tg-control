@@ -60,6 +60,15 @@ ADAPTER_ERROR_CODES = frozenset(
         "credential_revoked",
         "adapter_failure",
         "media_expired",
+        "capability_unavailable",
+        "permission_required",
+        "content_protected",
+        "poll_closed",
+        "unsupported_platform",
+        "account_restricted",
+        "limit_exceeded",
+        "compliance_blocked",
+        "approval_required",
     }
 )
 

@@ -5,6 +5,7 @@ let sessionTimer = null;
 let sessionGeneration = 0;
 let sessionRefreshSequence = 0;
 let workspaceRefreshSequence = 0;
+let capabilityRequestSequence = 0;
 let idleTimer = null;
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const $ = (selector) => document.querySelector(selector);
@@ -37,11 +38,12 @@ $("#login-form").addEventListener("submit", async (event) => {
   catch { if (generation !== sessionGeneration) return; state.token = ""; $("#login-error").textContent = "Unable to unlock the workspace. Check the credential and gateway."; }
 });
 function lockWorkspace(reason = "") {
-  sessionGeneration += 1;
+  sessionGeneration += 1; capabilityRequestSequence += 1;
   state.token = ""; state.accounts = []; state.clients = []; state.sessions = {}; state.retention = null;
   clearInterval(sessionTimer); clearTimeout(idleTimer); sessionTimer = null; idleTimer = null;
   document.querySelectorAll("form").forEach((form) => form.reset());
-  for (const selector of ["#account-list", "#client-list", "#recent-audit", "#session-events", "#audit-list", "#policy-client", "#policy-account"]) $(selector).replaceChildren();
+  for (const selector of ["#account-list", "#client-list", "#recent-audit", "#session-events", "#audit-list", "#policy-client", "#policy-account", "#capability-list"]) $(selector).replaceChildren();
+  $("#capability-panel").hidden = true;
   $("#stat-accounts").textContent = "0"; $("#stat-clients").textContent = "0";
   $("#policy-form").hidden = true; $("#issued-credential").value = ""; $("#credential-box").hidden = true;
   clearNotice(); $("#session-alert").hidden = true; $("#session-alert").textContent = ""; $("#monitor-alert").hidden = true; $("#monitor-alert").textContent = ""; $("#monitor-summary").textContent = ""; $("#app").hidden = true; $("#login").hidden = false; $("#login-error").textContent = reason; $("#owner-token").focus();
@@ -89,6 +91,7 @@ function renderAccounts() {
     const session = state.sessions[account.id];
     main.append(make("strong", "", account.alias), make("small", "", `${account.phone_number} · ${session ? session.state : "not checked"} · ${account.id}`));
     const badge = make("span", `badge${account.enabled ? "" : " off"}`, account.enabled ? "ENABLED" : "DISABLED");
+    addAction(actions, "Capabilities", async () => { await showCapabilities(account); });
     addAction(actions, account.enabled ? "Disable" : "Enable", async () => { await request(`/v1/admin/accounts/${pathPart(account.id)}`, { method: "PATCH", body: { enabled: !account.enabled } }); await refreshAll(); notice("Account updated."); });
     if (account.enabled) {
       addAction(actions, "Session", async () => { const status = await request(`/v1/admin/accounts/${pathPart(account.id)}/status`); notice(`Session: ${status.state}${status.intervention_required ? " · owner intervention required" : ""}.`); });
@@ -97,6 +100,49 @@ function renderAccounts() {
     row.append(icon, main, badge, actions); root.append(row);
   }
 }
+async function showCapabilities(account) {
+  const sequence = ++capabilityRequestSequence, generation = sessionGeneration;
+  const catalog = await request(`/v1/admin/accounts/${pathPart(account.id)}/capabilities`);
+  if (generation !== sessionGeneration || sequence !== capabilityRequestSequence) return;
+  const panel = $("#capability-panel"), list = $("#capability-list");
+  $("#capability-title").textContent = `${account.alias} · capability status`;
+  $("#capability-summary").textContent = `${catalog.capabilities.length} operation-level records · adapter: ${catalog.adapter_mode} · live adapter: disabled`;
+  $("#capability-live-note").textContent = catalog.live_blocker || "Live Telegram access is disabled.";
+  list.replaceChildren();
+  const labels = {
+    synthetic_fixture_supported: "SYNTHETIC ONLY",
+    capability_unavailable: "NOT ELIGIBLE",
+    eligibility_unknown: "ELIGIBILITY UNKNOWN",
+    not_implemented_or_unverified: "NOT IMPLEMENTED / UNVERIFIED",
+    compliance_blocked: "COMPLIANCE BLOCKED",
+    approval_required: "OWNER APPROVAL REQUIRED",
+  };
+  const adapterLabels = {
+    synthetic_fixture: "SYNTHETIC HANDLER",
+    not_implemented_or_version_unverified: "NO VERIFIED HANDLER",
+    not_implemented: "NO HANDLER",
+  };
+  for (const item of catalog.capabilities) {
+    const row = make("div", "capability-row"), main = make("div", "capability-main");
+    const badges = make("div", "capability-badges");
+    main.append(make("strong", "", item.operation), make("small", "", `${item.group} · ${item.permission}`));
+    if (item.platform_dependency) main.append(make("small", "", `Requirement: ${item.platform_dependency}`));
+    if (item.blocker_reason) main.append(make("small", "capability-blocker", item.blocker_reason));
+    for (const [parameter, reason] of Object.entries(item.conditional_blockers || {})) {
+      main.append(make("small", "capability-blocker", `Conditional gate: ${parameter} → ${reason}`));
+    }
+    const status = item.status || item.adapter_support;
+    badges.append(make("span", `badge capability-status ${status.replaceAll("_", "-")}`, labels[status] || status.toUpperCase()));
+    if (item.adapter_support) {
+      const adapter = item.adapter_support;
+      badges.append(make("span", `badge capability-adapter ${adapter.replaceAll("_", "-")}`, adapterLabels[adapter] || adapter.toUpperCase()));
+    }
+    row.append(main, badges); list.append(row);
+  }
+  panel.hidden = false;
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+$("#close-capabilities").addEventListener("click", () => { capabilityRequestSequence += 1; $("#capability-panel").hidden = true; $("#capability-list").replaceChildren(); });
 $("#account-form").addEventListener("submit", async (event) => { event.preventDefault(); try { await request("/v1/admin/accounts", { method: "POST", body: { alias: $("#account-alias").value, phone_number: $("#account-phone").value } }); event.target.reset(); await refreshAll(); notice("Synthetic account added."); } catch (error) { report(error); } });
 function showCredential(value) { $("#issued-credential").value = value; $("#credential-box").hidden = false; showView("clients"); $("#issued-credential").focus(); $("#issued-credential").select(); }
 $("#dismiss-credential").addEventListener("click", () => { $("#issued-credential").value = ""; $("#credential-box").hidden = true; });

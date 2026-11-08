@@ -1,6 +1,6 @@
 # Product and engineering contract index
 
-Updated: 2026-11-07. This document is the navigation and precedence contract. It does not override the Telegram compliance gate or owner approval boundaries.
+Updated: 2026-11-08. This document is the navigation and precedence contract. It does not override the Telegram compliance gate or owner approval boundaries.
 
 ## Purpose
 
@@ -24,7 +24,7 @@ A dated historical status entry is evidence of what was true then, not a current
 
 - Confirmed: explicitly requested or approved by the owner.
 - Required foundation: engineering capability needed to support confirmed behavior; Arena implements without asking.
-- Candidate: optional feature found in research, not approved as user-facing behavior. Do not silently promote it to Confirmed.
+- Candidate: optional feature found in research, not approved as live/product behavior. Synthetic schemas or fixtures may be approved separately without promoting live support. Do not silently promote a Candidate to Confirmed.
 - Blocked: cannot proceed past a legal, security, external-service, or owner-approval gate.
 - Implemented: code exists.
 - Verified: relevant tests/evidence were actually executed. Synthetic/mock evidence must be labelled as such.
@@ -37,7 +37,7 @@ Every feature matrix row identifies status and links to implementation and tests
 |---|---|---|
 | Product behavior | PRD.md, ARENA.md | Accounts, clients, access, read/write/admin, commands, AI boundaries |
 | Architecture | ARCHITECTURE.md, ADR.md | Core, adapter, storage, interfaces, process topology |
-| External API | API.md, MCP.md, CLI.md, authenticated OpenAPI | Versioned operations, schemas, errors, clients |
+| External API | API.md, MCP.md, CLI.md, FEATURE_CAPABILITIES.md, authenticated OpenAPI | Versioned operations, schemas, errors, capability status, clients |
 | Authorization | SECURITY.md | Principals, grants, scopes, exclusions, preauthorization |
 | Data and retention | DATA_MODEL.md, OPERATIONS.md | Metadata, isolation, encryption, cache, audit, backup |
 | Events/jobs/workflows | EVENTS_JOBS_WORKFLOWS.md | Event delivery, durable jobs, scheduling, workflow execution |
@@ -79,6 +79,12 @@ When a contract is implemented, update its source document and linked API/help/a
 9. Security/operations foundations: secret lifecycle, key rotation/recovery, observability, alerting, migration/restore drills, graceful shutdown, dependency/supply-chain checks, and production runbooks.
 10. Requirement-to-code-to-test traceability and end-to-end synthetic acceptance tests for every user-visible capability.
 
+## Synthetic feature and capability expansion (2026-11-08)
+
+The owner approved broadening the synthetic action schemas and fixtures, plus descriptive operation-level capability discovery. The current catalogue has 147 rows (12 base operations and 135 feature actions); the synthetic adapter has handlers for 124 feature actions. HTTP, MCP, CLI and the owner Admin panel expose discovery over the shared Core/contract registry, while execution remains `actions.execute` through the same authorization path. Details and blockers are in [FEATURE_CAPABILITIES.md](FEATURE_CAPABILITIES.md).
+
+This approval is limited to synthetic fixtures and status reporting. It does not imply a live Telegram adapter, Telegram-version parity, real account eligibility, live content, or production authorization. `translate_message` remains compliance-blocked; Stars/Gifts financial or sensitive operations requiring separate approval remain disabled; unsupported and eligibility-unknown operations fail closed. Existing Read/Write/Admin independence, explicit account/chat scopes, exclusion precedence, whole-batch preauthorization and delivery-time rechecks remain mandatory.
+
 ## Autonomy and stop conditions
 
 Arena continues through Confirmed and Required foundation work: refactors, tests, documentation, migrations on disposable test databases, synthetic fixtures, and local reproducible builds.
@@ -97,7 +103,7 @@ For ordinary engineering choices, choose the safest conventional option, documen
 
 ## Candidate feature backlog
 
-Competitor research identified possible modules such as AFK/status replies, keyword/regex auto-replies, reminders, downloader queues, voice transcription, text-to-speech, OCR, translation, formatting, channel reactions, profile automation, chat export, and workflow templates. These are Candidates, not automatically approved behavior. Arena may prepare shared foundations and synthetic adapters, but must not activate or ship a user-facing candidate without owner confirmation. No candidate permits broad background AI analysis, arbitrary message-content instruction execution, or crossing the compliance gate.
+Competitor research identified possible modules such as AFK/status replies, keyword/regex auto-replies, reminders, downloader queues, voice transcription, text-to-speech, OCR, translation, formatting, channel reactions, profile automation, chat export, and workflow templates. These remain Candidates as live Telegram/product behavior unless separately confirmed. The 2026-11-08 synthetic action expansion provides typed fixture paths and descriptive status rows only; it does not activate live behavior or approve a production data flow. Arena must not activate or ship a candidate without owner confirmation. No candidate permits broad background AI analysis, arbitrary message-content instruction execution, or crossing the compliance gate.
 
 ## Completion standard
 
@@ -113,9 +119,9 @@ The confirmed product is complete only when:
 
 Current state and next executable stage are in STATUS.md and ROADMAP.md.
 
-## Machine-checked interface contracts (2026-11-07)
+## Machine-checked interface contracts (updated 2026-11-08)
 
-`src/tg_control/contracts.py` is the single registry of versioned operations: `name`, `principal` (`client` or `owner`), Gateway Core entry point, allowed error codes, HTTP binding, MCP tool and CLI command, pagination flag and audit flag. `scripts/gen_contracts.py` writes `docs/contracts/interfaces.json` (72 operations at this revision); `scripts/check_interfaces.py` is the CI gate and fails when the committed matrix is stale, when a registered MCP tool or CLI command is missing from the live catalogs, when a binding is duplicated, or when an owner-plane operation is exposed as an MCP tool. `tests/test_contracts.py` additionally boots the app to prove that every registry row is bound to a live route, that schema/argument models exist, that paginated operations expose a cursor parameter, and that error codes normalize consistently. Requirements map to contracts, implementation and executed tests in `docs/TRACEABILITY.md`; `tests/test_traceability.py` fails on a missing path, missing test function, unlisted test file or a live-evidence claim.
+`src/tg_control/contracts.py` is the single registry of versioned operations: `name`, `principal` (`client` or `owner`), Gateway Core entry point, allowed error codes, HTTP binding, MCP tool and CLI command, pagination flag and audit flag. `scripts/gen_contracts.py` writes `docs/contracts/interfaces.json` (74 operations at this revision); `scripts/check_interfaces.py` is the CI gate and fails when the committed matrix is stale, when a registered MCP tool or CLI command is missing from the live catalogs, when a binding is duplicated, or when an owner-plane operation is exposed as an MCP tool. `tests/test_contracts.py` additionally boots the app to prove that every registry row is bound to a live route, that schema/argument models exist, that paginated operations expose a cursor parameter, and that error codes normalize consistently. Requirements map to contracts, implementation and executed tests in `docs/TRACEABILITY.md`; `tests/test_traceability.py` fails on a missing path, missing test function, unlisted test file or a live-evidence claim.
 
 `scripts/ci.sh` chains dependency validation, lint, the contract gate, the traceability completeness check and the full test suite; it is the single command an operator or a future hosted CI job runs.
 

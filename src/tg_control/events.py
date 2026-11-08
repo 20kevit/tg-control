@@ -63,6 +63,12 @@ EVENT_PAYLOAD_KEYS: dict[str, frozenset[str]] = {
     "message.read": frozenset({"message_id", "up_to_id"}),
     "chat.discovered": frozenset({"title"}),
     "chat.updated": frozenset({"title"}),
+    "chat.state_changed": frozenset({"state", "value"}),
+    "reaction.updated": frozenset({"message_id", "reaction", "count"}),
+    "poll.updated": frozenset({"message_id", "options_count", "closed"}),
+    "member.updated": frozenset({"user_id", "role", "status"}),
+    "topic.updated": frozenset({"topic_id", "title", "state"}),
+    "story.updated": frozenset({"story_id", "state"}),
     "session.state": frozenset({"state", "intervention_required"}),
     "command.saved": frozenset(
         {
@@ -79,6 +85,10 @@ EVENT_PAYLOAD_KEYS: dict[str, frozenset[str]] = {
     "plugin.health": frozenset({"plugin_id", "state"}),
 }
 EVENT_TYPES = frozenset(EVENT_PAYLOAD_KEYS)
+# These adapter events contain only story identifiers/state and have no chat
+# target. Delivery requires the account's current Read assignment; message and
+# member content never inherit a chat scope.
+ACCOUNT_EVENT_TYPES = frozenset({"story.updated"})
 MAX_PAYLOAD_BYTES = 8192
 MAX_EVENT_TYPES = 16
 MAX_INFLIGHT_LIMIT = 1000
@@ -266,7 +276,11 @@ class EventService:
         if not set(data.payload) <= allowed:
             # Unknown fields are dropped only by rejecting the event; never stored.
             raise EventError("invalid_payload", 422)
-        if data.source == "adapter" and data.chat_id is None:
+        if (
+            data.source == "adapter"
+            and data.chat_id is None
+            and data.event_type not in ACCOUNT_EVENT_TYPES
+        ):
             raise EventError("invalid_event", 422)
 
     async def ingest(self, data: EventInput, *, request_id: str | None = None) -> dict[str, Any]:
@@ -387,9 +401,7 @@ class EventService:
         with self.sessions() as session:
             if not is_active(session, principal):
                 raise EventError("credential_revoked", 401)
-            current_scope = get_scope(
-                session, principal.client_id, account_id, Permission.READ
-            )
+            current_scope = get_scope(session, principal.client_id, account_id, Permission.READ)
             if current_scope is None:
                 raise EventError("denied", 403)
             subscription = EventSubscription(
@@ -589,9 +601,20 @@ class EventService:
     async def _deliverable(
         self, principal: Principal, subscription: dict[str, Any], row: EventRecord
     ) -> bool:
-        # Operational events are owner-only and never delivered to AI clients.
-        if row.source != "adapter" or row.chat_id is None:
+        # Operational events are owner-only and never delivered to clients.
+        if row.source != "adapter":
             return False
+        if row.chat_id is None:
+            if row.event_type not in ACCOUNT_EVENT_TYPES:
+                return False
+            with self.sessions() as session:
+                if not is_active(session, principal):
+                    return False
+                account = session.get(Account, subscription["account_id"])
+                scope = get_scope(
+                    session, principal.client_id, subscription["account_id"], Permission.READ
+                )
+                return bool(account and account.enabled and scope)
         try:
             chat = await asyncio.wait_for(
                 self.adapter.get_chat(row.account_id, row.chat_id), timeout=self.timeout_seconds
