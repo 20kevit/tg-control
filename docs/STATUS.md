@@ -1,15 +1,22 @@
 # Execution status
 
-Updated 2026-11-07. Historical entries below record their original branch and environment; they do not verify later commits.
+Updated 2026-11-08. Historical entries below record their original branch and environment; they do not verify later commits.
 
 ## Current verified snapshot
 
-Latest verified commit: `4fd45514b0d967ef3437f3053bae50c9c3efb085` on `arena/81de801c-tg-control`. Hosted push [run 42403984753](https://github.com/20kevit/tg-control/actions/runs/42403984753) completed both quality and container jobs successfully, including the canonical gate, dependency audit, image build and disposable Compose smoke. The run verifies that commit only, not subsequent changes. Local working-tree verification for that milestone reported 456 passed, one optional native TDJSON probe skipped, 87.21% coverage, Ruff and contract/traceability gates clean. An earlier 455-pass run preceded an additional documentation test; it is not the final count. Hosted job metadata confirms success but the detailed hosted log was unavailable in the subsequent sandbox; do not infer a hosted test count from the local result.
+Latest verified baseline before this documentation-only sync: `e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded` on `arena/81de801c-tg-control`. Hosted push [run 42454395796](https://github.com/20kevit/tg-control/actions/runs/42454395796) completed both quality and container jobs successfully. The quality log confirms 456 passed, 1 skipped (optional native TDJSON probe), 87.21% coverage, Ruff clean, 72 interface operations, 20 MCP tools, 26 CLI commands, traceability across 46 test files, and `pip-audit` reporting no known vulnerabilities. The container job confirms 11 deployment tests passed (2 warnings), image build, Compose validation, synthetic API smoke and the disposable container smoke all succeeded. These results apply to `e594ef6` only. This documentation-only sync creates a later commit and is not covered by that run; its own hosted CI must pass before that commit is called verified. The run emitted GitHub Actions Node.js 20 deprecation warnings, which remain a workflow-maintenance item.
 
 Implemented and exercised against synthetic data: Gateway Core; PostgreSQL models/migrations; client credential issue/rotation/revocation; independent account-scoped Read/Write/Admin policies and exclusions; synthetic discovery/search/history/message/media reads; send/edit/delete/forward/media/admin; batch preauthorization, per-item outcomes, idempotency, retry/deadline handling; authenticated HTTP API; MCP stdio and Streamable HTTP; CLI; owner Web Admin; metadata-only audit; request framing/Host/Origin controls; encrypted synthetic state/media retention; backup/restore; session monitoring; and cooperative single-instance protection.
 
 Historical hosted run [42401029613](https://github.com/20kevit/tg-control/actions/runs/42401029613) passed both quality and container jobs at commit `59951afad2c05a7aa114d691ee7e73a026272026`; this is not evidence of a later commit, VPS, live Telegram, or production operation.
 
+
+## Hosted CI evidence for the latest verified baseline (2026-11-08)
+
+- **Revision and run**: push run `42454395796` verified commit `e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded` on `arena/81de801c-tg-control`; both workflow jobs concluded successfully.
+- **Quality job**: 456 passed, 1 skipped (optional native TDJSON probe), 87.21% coverage against the 80% floor, Ruff clean, 72 registered operations / 20 MCP tools / 26 CLI commands, traceability covering 46 test files, and `pip-audit` found no known vulnerabilities.
+- **Container job**: 11 deployment tests passed (2 warnings); image build, Compose validation, synthetic API smoke, disposable container smoke and image inspection completed successfully.
+- **Boundaries**: this is synthetic hosted-CI evidence, not local-container, VPS, production, live Telegram or real-data evidence. The follow-on documentation-only commit created by this sync still needs its own CI run. Node.js 20 deprecation warnings were emitted by the workflow and remain a maintenance item.
 
 ## Documentation evidence reconciliation (2026-11-07)
 
