@@ -238,10 +238,14 @@ def main() -> None:
         "42467168708) and [PR run 42467566017](https://github.com/20kevit/tg-control/actions/runs/"
         "42467566017) "
         "passed quality/dependency audit and image-build/Compose/container-smoke jobs at "
-        "implementation commit `796b2d8d0817dc6f00b9170e9afe80c6549f6fc8`. The prior "
+        "implementation commit `796b2d8d0817dc6f00b9170e9afe80c6549f6fc8`. Documentation "
+        "evidence commit `4c1caadc5716b15e3e58affc203581591a83c9ee` also passed in [push run "
+        "42467972935](https://github.com/20kevit/tg-control/actions/runs/42467972935) and "
+        "[PR run 42467977432](https://github.com/20kevit/tg-control/actions/runs/42467977432). "
+        "The prior "
         "[42454395796](https://github.com/20kevit/tg-control/actions/runs/42454395796) "
         "baseline (`e594ef6fa63a1500aa6feae60d39dfa8bfaf8ded`) is historical only. The current "
-        "local run, hosted evidence and boundaries are recorded in STATUS.md; neither run "
+        "local run, hosted evidence and boundaries are recorded in STATUS.md; none of these runs "
         "establishes VPS, production or live Telegram behavior.",
         "",
         "| Requirement | Contract | Status | Why |",
